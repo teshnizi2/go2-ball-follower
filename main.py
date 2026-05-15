@@ -1969,26 +1969,30 @@ def main() -> None:
                         # the yellow patch around each obstacle is more
                         # compact — matches a tighter pass distance.
                         _inject_safety_zone_geoms(scene, _viz_obs, 0.22)
-                    # Green safety wall — drawn ONLY on the side of the
-                    # obstacle the robot is currently passing.  Filter:
-                    # (1) obstacle is just ahead (within OBS_X_HALF + 1m),
-                    # (2) robot is laterally close enough that the obstacle
-                    #     is the one being skirted (within obs_half + 1m).
-                    # We keep only the single closest such side; other
-                    # obstacles' margins are not relevant.
-                    _SAFETY = 0.05   # very close to obstacle edge — robot's actual closest approach
+                    # Green safety wall — drawn on the side the PLANNER has
+                    # committed to passing on (`detour_side_y`), NOT the
+                    # side the robot currently occupies.  The wall shows
+                    # where the robot is HEADING relative to the next
+                    # obstacle.  If no commitment yet, fall back to the
+                    # robot's current side.
+                    _SAFETY = 0.05
                     _NEAR_AHEAD = 2.5
+                    _planner_y = (
+                        detour_side_y
+                        if ("detour_obs_x" in locals() and detour_obs_x > 0
+                            and "detour_side_y" in locals())
+                        else ry
+                    )
                     _best = None   # (lateral_clearance, ox, safe_y)
                     for (_ox, _oy, _oh) in obstacle_world_positions:
                         _dx = _ox - rx
                         if _dx < -0.3 or _dx > _NEAR_AHEAD:
                             continue
-                        _lat = abs(_oy - ry) - _oh
-                        # Robot must be physically beside this obstacle's
-                        # safety zone, not far above/below it.
-                        if _lat > 1.0:
+                        _lat = abs(_oy - _planner_y) - _oh
+                        if _lat > 1.5:
                             continue
-                        if ry > _oy:
+                        # Wall on the SIDE the planner is passing.
+                        if _planner_y > _oy:
                             _safe_y = _oy + _oh + _SAFETY
                         else:
                             _safe_y = _oy - _oh - _SAFETY
@@ -2946,7 +2950,15 @@ def main() -> None:
             # the ball or run out of horizon (never connect to ball
             # through obstacles).
             _disp_path = None
-            if ("shared_path_pts" in locals() and shared_path_pts
+            # Use the planner's path ONLY if there's an active commitment;
+            # otherwise stale waypoints leak in and curve the arrow even
+            # when robot has a clear straight line to the ball.
+            _detour_active = (
+                "detour_obs_x" in locals() and detour_obs_x > 0
+            )
+            if (_detour_active
+                    and "shared_path_pts" in locals()
+                    and shared_path_pts
                     and len(shared_path_pts) >= 2):
                 _disp_path = list(shared_path_pts)
             elif "ahead_obstacles" in locals() and ahead_obstacles:
@@ -2977,7 +2989,13 @@ def main() -> None:
                 _disp_path = [(rx, ry), (bx, by)]
 
             _plan = [(rx, ry, _Z_FLOOR_OVL)]
-            if len(_disp_path) >= 2:
+            # If no detour is active and the path is just a direct line to
+            # the ball, render it as a true straight line (skip forward sim).
+            if (not _detour_active and _disp_path is not None
+                    and len(_disp_path) == 2):
+                _plan.append((bx, by, _Z_FLOOR_OVL))
+                cached_plan_waypoints = _plan
+            elif len(_disp_path) >= 2:
                 _sim_path = _disp_path
                 _sx, _sy, _syaw = rx, ry, yaw
                 _SIM_DT = 0.08
