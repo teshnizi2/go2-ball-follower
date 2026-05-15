@@ -1,0 +1,670 @@
+<mujoco model="go2_tracking">
+  <!-- Meshes live in assets/assets/; paths resolve from this file (sim/) -->
+  <compiler meshdir="assets/assets" autolimits="true"/>
+  <include file="assets/go2.xml"/>
+
+  <statistic center="0 0 0.3" extent="3.0"/>
+
+  <visual>
+    <headlight diffuse="0.6 0.6 0.6" ambient="0.4 0.4 0.4" specular="0 0 0"/>
+    <rgba haze="0.2 0.3 0.4 1"/>
+    <global azimuth="-150" elevation="-20"/>
+  </visual>
+
+  <asset>
+    <texture type="skybox" builtin="gradient" rgb1="0.4 0.6 0.8" rgb2="0.05 0.05 0.15"
+      width="512" height="3072"/>
+    <texture type="2d" name="groundplane" builtin="checker" mark="edge"
+      rgb1="0.85 0.85 0.80" rgb2="0.60 0.60 0.55" markrgb="0.9 0.9 0.9"
+      width="400" height="400"/>
+    <material name="groundplane" texture="groundplane" texuniform="true"
+      texrepeat="6 6" reflectance="0.08"/>
+    <!-- Glowing red ball: emissive so it reads as the focal point -->
+    <material name="ball_mat" rgba="0.95 0.10 0.12 1" emission="0.6"
+              specular="0.85" shininess="0.6"/>
+    <!-- Wall: warm concrete tone, slightly reflective -->
+    <material name="wall_mat" rgba="0.42 0.36 0.31 1" reflectance="0.04"/>
+    <!-- TALL obstacles: clean deep slate (modern industrial look) -->
+    <material name="obstacle_mat" rgba="0.165 0.180 0.230 1"
+              specular="0.4" shininess="0.45" reflectance="0.05"/>
+    <!-- SHORT obstacles: warm orange/coral, clean solid color -->
+    <material name="short_obstacle_mat" rgba="0.92 0.42 0.20 1"
+              specular="0.5" shininess="0.45" reflectance="0.05"/>
+  </asset>
+
+  <worldbody>
+    <!-- Lighting -->
+    <light name="sun" pos="0 0 4" dir="0 0 -1" directional="true"
+      diffuse="0.7 0.7 0.7" specular="0.1 0.1 0.1"/>
+    <light name="fill" pos="-3 -3 4" dir="0.5 0.5 -1" directional="false"
+      diffuse="0.25 0.25 0.25" specular="0 0 0"/>
+
+    <!-- Ground plane -->
+    <geom name="floor" size="0 0 0.05" type="plane" material="groundplane"
+      friction="0.8 0.005 0.0001"/>
+
+    <!-- Corridor walls: 5 m wide (y=±2.58), 600 m long. -->
+    <geom name="corridor_wall_north" type="box" size="300.0 0.08 0.5"
+          pos="297.0  2.58 0.5" material="wall_mat"/>
+    <geom name="corridor_wall_south" type="box" size="300.0 0.08 0.5"
+          pos="297.0 -2.58 0.5" material="wall_mat"/>
+    <!-- Back wall so robot doesn't wander off behind -->
+    <geom name="corridor_wall_back"  type="box" size="0.08 2.7 0.5"
+          pos="-3.08 0 0.5" material="wall_mat"/>
+
+    <!-- Target ball (mocap = kinematically controlled via data.mocap_pos in Python).
+         Ball is defined BEFORE obstacles so its mocap index stays at 0. -->
+    <body name="target_ball" mocap="true" pos="2.0 0.0 0.15">
+      <geom name="ball" type="sphere" size="0.13" material="ball_mat"
+        contype="0" conaffinity="0"/>
+    </body>
+
+    <!-- 100 VARIED OBSTACLES: y-widths 0.30-1.90 m,
+         alternating tall (black, 0.40 m high) and short (orange, 0.12 m high). -->
+
+    <body name="varied_obs_1" mocap="true" pos="100 100 -5">
+      <geom name="vobs_1" type="box" size="0.20 0.506 0.4" material="obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_2" mocap="true" pos="100 100 -5">
+      <geom name="vobs_2" type="box" size="0.20 0.183 0.12" material="short_obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_3" mocap="true" pos="100 100 -5">
+      <geom name="vobs_3" type="box" size="0.20 0.669 0.4" material="obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_4" mocap="true" pos="100 100 -5">
+      <geom name="vobs_4" type="box" size="0.20 0.767 0.12" material="short_obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_5" mocap="true" pos="100 100 -5">
+      <geom name="vobs_5" type="box" size="0.20 0.306 0.4" material="obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_6" mocap="true" pos="100 100 -5">
+      <geom name="vobs_6" type="box" size="0.20 0.226 0.12" material="short_obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_7" mocap="true" pos="100 100 -5">
+      <geom name="vobs_7" type="box" size="0.20 0.18 0.4" material="obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_8" mocap="true" pos="100 100 -5">
+      <geom name="vobs_8" type="box" size="0.20 0.636 0.12" material="short_obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_9" mocap="true" pos="100 100 -5">
+      <geom name="vobs_9" type="box" size="0.20 0.238 0.4" material="obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_10" mocap="true" pos="100 100 -5">
+      <geom name="vobs_10" type="box" size="0.20 0.502 0.12" material="short_obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_11" mocap="true" pos="100 100 -5">
+      <geom name="vobs_11" type="box" size="0.20 0.675 0.4" material="obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_12" mocap="true" pos="100 100 -5">
+      <geom name="vobs_12" type="box" size="0.20 0.331 0.12" material="short_obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_13" mocap="true" pos="100 100 -5">
+      <geom name="vobs_13" type="box" size="0.20 0.817 0.4" material="obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_14" mocap="true" pos="100 100 -5">
+      <geom name="vobs_14" type="box" size="0.20 0.165 0.12" material="short_obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_15" mocap="true" pos="100 100 -5">
+      <geom name="vobs_15" type="box" size="0.20 0.651 0.4" material="obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_16" mocap="true" pos="100 100 -5">
+      <geom name="vobs_16" type="box" size="0.20 0.682 0.12" material="short_obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_17" mocap="true" pos="100 100 -5">
+      <geom name="vobs_17" type="box" size="0.20 0.495 0.4" material="obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_18" mocap="true" pos="100 100 -5">
+      <geom name="vobs_18" type="box" size="0.20 0.41 0.12" material="short_obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_19" mocap="true" pos="100 100 -5">
+      <geom name="vobs_19" type="box" size="0.20 0.655 0.4" material="obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_20" mocap="true" pos="100 100 -5">
+      <geom name="vobs_20" type="box" size="0.20 0.865 0.12" material="short_obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_21" mocap="true" pos="100 100 -5">
+      <geom name="vobs_21" type="box" size="0.20 0.511 0.4" material="obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_22" mocap="true" pos="100 100 -5">
+      <geom name="vobs_22" type="box" size="0.20 0.193 0.12" material="short_obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_23" mocap="true" pos="100 100 -5">
+      <geom name="vobs_23" type="box" size="0.20 0.185 0.4" material="obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_24" mocap="true" pos="100 100 -5">
+      <geom name="vobs_24" type="box" size="0.20 0.192 0.12" material="short_obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_25" mocap="true" pos="100 100 -5">
+      <geom name="vobs_25" type="box" size="0.20 0.591 0.4" material="obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_26" mocap="true" pos="100 100 -5">
+      <geom name="vobs_26" type="box" size="0.20 0.342 0.12" material="short_obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_27" mocap="true" pos="100 100 -5">
+      <geom name="vobs_27" type="box" size="0.20 0.29 0.4" material="obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_28" mocap="true" pos="100 100 -5">
+      <geom name="vobs_28" type="box" size="0.20 0.652 0.12" material="short_obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_29" mocap="true" pos="100 100 -5">
+      <geom name="vobs_29" type="box" size="0.20 0.259 0.4" material="obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_30" mocap="true" pos="100 100 -5">
+      <geom name="vobs_30" type="box" size="0.20 0.207 0.12" material="short_obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_31" mocap="true" pos="100 100 -5">
+      <geom name="vobs_31" type="box" size="0.20 0.878 0.4" material="obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_32" mocap="true" pos="100 100 -5">
+      <geom name="vobs_32" type="box" size="0.20 0.437 0.12" material="short_obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_33" mocap="true" pos="100 100 -5">
+      <geom name="vobs_33" type="box" size="0.20 0.694 0.4" material="obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_34" mocap="true" pos="100 100 -5">
+      <geom name="vobs_34" type="box" size="0.20 0.155 0.12" material="short_obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_35" mocap="true" pos="100 100 -5">
+      <geom name="vobs_35" type="box" size="0.20 0.354 0.4" material="obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_36" mocap="true" pos="100 100 -5">
+      <geom name="vobs_36" type="box" size="0.20 0.291 0.12" material="short_obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_37" mocap="true" pos="100 100 -5">
+      <geom name="vobs_37" type="box" size="0.20 0.813 0.4" material="obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_38" mocap="true" pos="100 100 -5">
+      <geom name="vobs_38" type="box" size="0.20 0.599 0.12" material="short_obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_39" mocap="true" pos="100 100 -5">
+      <geom name="vobs_39" type="box" size="0.20 0.842 0.4" material="obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_40" mocap="true" pos="100 100 -5">
+      <geom name="vobs_40" type="box" size="0.20 0.187 0.12" material="short_obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_41" mocap="true" pos="100 100 -5">
+      <geom name="vobs_41" type="box" size="0.20 0.353 0.4" material="obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_42" mocap="true" pos="100 100 -5">
+      <geom name="vobs_42" type="box" size="0.20 0.48 0.12" material="short_obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_43" mocap="true" pos="100 100 -5">
+      <geom name="vobs_43" type="box" size="0.20 0.344 0.4" material="obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_44" mocap="true" pos="100 100 -5">
+      <geom name="vobs_44" type="box" size="0.20 0.852 0.12" material="short_obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_45" mocap="true" pos="100 100 -5">
+      <geom name="vobs_45" type="box" size="0.20 0.157 0.4" material="obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_46" mocap="true" pos="100 100 -5">
+      <geom name="vobs_46" type="box" size="0.20 0.244 0.12" material="short_obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_47" mocap="true" pos="100 100 -5">
+      <geom name="vobs_47" type="box" size="0.20 0.606 0.4" material="obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_48" mocap="true" pos="100 100 -5">
+      <geom name="vobs_48" type="box" size="0.20 0.207 0.12" material="short_obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_49" mocap="true" pos="100 100 -5">
+      <geom name="vobs_49" type="box" size="0.20 0.856 0.4" material="obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_50" mocap="true" pos="100 100 -5">
+      <geom name="vobs_50" type="box" size="0.20 0.922 0.12" material="short_obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_51" mocap="true" pos="100 100 -5">
+      <geom name="vobs_51" type="box" size="0.20 0.258 0.4" material="obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_52" mocap="true" pos="100 100 -5">
+      <geom name="vobs_52" type="box" size="0.20 0.634 0.12" material="short_obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_53" mocap="true" pos="100 100 -5">
+      <geom name="vobs_53" type="box" size="0.20 0.246 0.4" material="obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_54" mocap="true" pos="100 100 -5">
+      <geom name="vobs_54" type="box" size="0.20 0.215 0.12" material="short_obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_55" mocap="true" pos="100 100 -5">
+      <geom name="vobs_55" type="box" size="0.20 0.491 0.4" material="obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_56" mocap="true" pos="100 100 -5">
+      <geom name="vobs_56" type="box" size="0.20 0.803 0.12" material="short_obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_57" mocap="true" pos="100 100 -5">
+      <geom name="vobs_57" type="box" size="0.20 0.336 0.4" material="obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_58" mocap="true" pos="100 100 -5">
+      <geom name="vobs_58" type="box" size="0.20 0.924 0.12" material="short_obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_59" mocap="true" pos="100 100 -5">
+      <geom name="vobs_59" type="box" size="0.20 0.246 0.4" material="obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_60" mocap="true" pos="100 100 -5">
+      <geom name="vobs_60" type="box" size="0.20 0.538 0.12" material="short_obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_61" mocap="true" pos="100 100 -5">
+      <geom name="vobs_61" type="box" size="0.20 0.635 0.4" material="obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_62" mocap="true" pos="100 100 -5">
+      <geom name="vobs_62" type="box" size="0.20 0.633 0.12" material="short_obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_63" mocap="true" pos="100 100 -5">
+      <geom name="vobs_63" type="box" size="0.20 0.199 0.4" material="obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_64" mocap="true" pos="100 100 -5">
+      <geom name="vobs_64" type="box" size="0.20 0.289 0.12" material="short_obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_65" mocap="true" pos="100 100 -5">
+      <geom name="vobs_65" type="box" size="0.20 0.916 0.4" material="obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_66" mocap="true" pos="100 100 -5">
+      <geom name="vobs_66" type="box" size="0.20 0.312 0.12" material="short_obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_67" mocap="true" pos="100 100 -5">
+      <geom name="vobs_67" type="box" size="0.20 0.939 0.4" material="obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_68" mocap="true" pos="100 100 -5">
+      <geom name="vobs_68" type="box" size="0.20 0.223 0.12" material="short_obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_69" mocap="true" pos="100 100 -5">
+      <geom name="vobs_69" type="box" size="0.20 0.264 0.4" material="obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_70" mocap="true" pos="100 100 -5">
+      <geom name="vobs_70" type="box" size="0.20 0.532 0.12" material="short_obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_71" mocap="true" pos="100 100 -5">
+      <geom name="vobs_71" type="box" size="0.20 0.41 0.4" material="obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_72" mocap="true" pos="100 100 -5">
+      <geom name="vobs_72" type="box" size="0.20 0.281 0.12" material="short_obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_73" mocap="true" pos="100 100 -5">
+      <geom name="vobs_73" type="box" size="0.20 0.342 0.4" material="obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_74" mocap="true" pos="100 100 -5">
+      <geom name="vobs_74" type="box" size="0.20 0.446 0.12" material="short_obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_75" mocap="true" pos="100 100 -5">
+      <geom name="vobs_75" type="box" size="0.20 0.197 0.4" material="obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_76" mocap="true" pos="100 100 -5">
+      <geom name="vobs_76" type="box" size="0.20 0.88 0.12" material="short_obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_77" mocap="true" pos="100 100 -5">
+      <geom name="vobs_77" type="box" size="0.20 0.404 0.4" material="obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_78" mocap="true" pos="100 100 -5">
+      <geom name="vobs_78" type="box" size="0.20 0.184 0.12" material="short_obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_79" mocap="true" pos="100 100 -5">
+      <geom name="vobs_79" type="box" size="0.20 0.418 0.4" material="obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_80" mocap="true" pos="100 100 -5">
+      <geom name="vobs_80" type="box" size="0.20 0.183 0.12" material="short_obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_81" mocap="true" pos="100 100 -5">
+      <geom name="vobs_81" type="box" size="0.20 0.245 0.4" material="obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_82" mocap="true" pos="100 100 -5">
+      <geom name="vobs_82" type="box" size="0.20 0.286 0.12" material="short_obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_83" mocap="true" pos="100 100 -5">
+      <geom name="vobs_83" type="box" size="0.20 0.764 0.4" material="obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_84" mocap="true" pos="100 100 -5">
+      <geom name="vobs_84" type="box" size="0.20 0.25 0.12" material="short_obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_85" mocap="true" pos="100 100 -5">
+      <geom name="vobs_85" type="box" size="0.20 0.17 0.4" material="obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_86" mocap="true" pos="100 100 -5">
+      <geom name="vobs_86" type="box" size="0.20 0.864 0.12" material="short_obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_87" mocap="true" pos="100 100 -5">
+      <geom name="vobs_87" type="box" size="0.20 0.457 0.4" material="obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_88" mocap="true" pos="100 100 -5">
+      <geom name="vobs_88" type="box" size="0.20 0.548 0.12" material="short_obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_89" mocap="true" pos="100 100 -5">
+      <geom name="vobs_89" type="box" size="0.20 0.215 0.4" material="obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_90" mocap="true" pos="100 100 -5">
+      <geom name="vobs_90" type="box" size="0.20 0.393 0.12" material="short_obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_91" mocap="true" pos="100 100 -5">
+      <geom name="vobs_91" type="box" size="0.20 0.668 0.4" material="obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_92" mocap="true" pos="100 100 -5">
+      <geom name="vobs_92" type="box" size="0.20 0.77 0.12" material="short_obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_93" mocap="true" pos="100 100 -5">
+      <geom name="vobs_93" type="box" size="0.20 0.368 0.4" material="obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_94" mocap="true" pos="100 100 -5">
+      <geom name="vobs_94" type="box" size="0.20 0.8 0.12" material="short_obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_95" mocap="true" pos="100 100 -5">
+      <geom name="vobs_95" type="box" size="0.20 0.217 0.4" material="obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_96" mocap="true" pos="100 100 -5">
+      <geom name="vobs_96" type="box" size="0.20 0.356 0.12" material="short_obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_97" mocap="true" pos="100 100 -5">
+      <geom name="vobs_97" type="box" size="0.20 0.288 0.4" material="obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_98" mocap="true" pos="100 100 -5">
+      <geom name="vobs_98" type="box" size="0.20 0.472 0.12" material="short_obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_99" mocap="true" pos="100 100 -5">
+      <geom name="vobs_99" type="box" size="0.20 0.31 0.4" material="obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_100" mocap="true" pos="100 100 -5">
+      <geom name="vobs_100" type="box" size="0.20 0.917 0.12" material="short_obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_101" mocap="true" pos="100 100 -5">
+      <geom name="vobs_101" type="box" size="0.2 0.469 0.4" material="obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_102" mocap="true" pos="100 100 -5">
+      <geom name="vobs_102" type="box" size="0.2 0.291 0.4" material="obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_103" mocap="true" pos="100 100 -5">
+      <geom name="vobs_103" type="box" size="0.2 0.75 0.4" material="obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_104" mocap="true" pos="100 100 -5">
+      <geom name="vobs_104" type="box" size="0.2 0.453 0.12" material="short_obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_105" mocap="true" pos="100 100 -5">
+      <geom name="vobs_105" type="box" size="0.2 0.576 0.12" material="short_obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_106" mocap="true" pos="100 100 -5">
+      <geom name="vobs_106" type="box" size="0.2 0.537 0.4" material="obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_107" mocap="true" pos="100 100 -5">
+      <geom name="vobs_107" type="box" size="0.2 0.634 0.4" material="obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_108" mocap="true" pos="100 100 -5">
+      <geom name="vobs_108" type="box" size="0.2 0.863 0.4" material="obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_109" mocap="true" pos="100 100 -5">
+      <geom name="vobs_109" type="box" size="0.2 0.457 0.12" material="short_obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_110" mocap="true" pos="100 100 -5">
+      <geom name="vobs_110" type="box" size="0.2 0.27 0.12" material="short_obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_111" mocap="true" pos="100 100 -5">
+      <geom name="vobs_111" type="box" size="0.2 0.821 0.4" material="obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_112" mocap="true" pos="100 100 -5">
+      <geom name="vobs_112" type="box" size="0.2 0.898 0.12" material="short_obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_113" mocap="true" pos="100 100 -5">
+      <geom name="vobs_113" type="box" size="0.2 0.762 0.4" material="obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_114" mocap="true" pos="100 100 -5">
+      <geom name="vobs_114" type="box" size="0.2 0.468 0.4" material="obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_115" mocap="true" pos="100 100 -5">
+      <geom name="vobs_115" type="box" size="0.2 0.156 0.4" material="obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_116" mocap="true" pos="100 100 -5">
+      <geom name="vobs_116" type="box" size="0.2 0.932 0.12" material="short_obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_117" mocap="true" pos="100 100 -5">
+      <geom name="vobs_117" type="box" size="0.2 0.515 0.12" material="short_obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_118" mocap="true" pos="100 100 -5">
+      <geom name="vobs_118" type="box" size="0.2 0.628 0.12" material="short_obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_119" mocap="true" pos="100 100 -5">
+      <geom name="vobs_119" type="box" size="0.2 0.432 0.4" material="obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_120" mocap="true" pos="100 100 -5">
+      <geom name="vobs_120" type="box" size="0.2 0.877 0.4" material="obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_121" mocap="true" pos="100 100 -5">
+      <geom name="vobs_121" type="box" size="0.2 0.776 0.12" material="short_obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_122" mocap="true" pos="100 100 -5">
+      <geom name="vobs_122" type="box" size="0.2 0.926 0.12" material="short_obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_123" mocap="true" pos="100 100 -5">
+      <geom name="vobs_123" type="box" size="0.2 0.672 0.4" material="obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_124" mocap="true" pos="100 100 -5">
+      <geom name="vobs_124" type="box" size="0.2 0.168 0.4" material="obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_125" mocap="true" pos="100 100 -5">
+      <geom name="vobs_125" type="box" size="0.2 0.798 0.4" material="obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_126" mocap="true" pos="100 100 -5">
+      <geom name="vobs_126" type="box" size="0.2 0.486 0.4" material="obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_127" mocap="true" pos="100 100 -5">
+      <geom name="vobs_127" type="box" size="0.2 0.395 0.4" material="obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_128" mocap="true" pos="100 100 -5">
+      <geom name="vobs_128" type="box" size="0.2 0.41 0.12" material="short_obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_129" mocap="true" pos="100 100 -5">
+      <geom name="vobs_129" type="box" size="0.2 0.309 0.12" material="short_obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_130" mocap="true" pos="100 100 -5">
+      <geom name="vobs_130" type="box" size="0.2 0.194 0.4" material="obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_131" mocap="true" pos="100 100 -5">
+      <geom name="vobs_131" type="box" size="0.2 0.353 0.4" material="obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_132" mocap="true" pos="100 100 -5">
+      <geom name="vobs_132" type="box" size="0.2 0.753 0.4" material="obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_133" mocap="true" pos="100 100 -5">
+      <geom name="vobs_133" type="box" size="0.2 0.699 0.12" material="short_obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_134" mocap="true" pos="100 100 -5">
+      <geom name="vobs_134" type="box" size="0.2 0.253 0.12" material="short_obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_135" mocap="true" pos="100 100 -5">
+      <geom name="vobs_135" type="box" size="0.2 0.624 0.12" material="short_obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_136" mocap="true" pos="100 100 -5">
+      <geom name="vobs_136" type="box" size="0.2 0.63 0.4" material="obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_137" mocap="true" pos="100 100 -5">
+      <geom name="vobs_137" type="box" size="0.2 0.226 0.4" material="obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_138" mocap="true" pos="100 100 -5">
+      <geom name="vobs_138" type="box" size="0.2 0.288 0.4" material="obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_139" mocap="true" pos="100 100 -5">
+      <geom name="vobs_139" type="box" size="0.2 0.265 0.4" material="obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_140" mocap="true" pos="100 100 -5">
+      <geom name="vobs_140" type="box" size="0.2 0.593 0.12" material="short_obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_141" mocap="true" pos="100 100 -5">
+      <geom name="vobs_141" type="box" size="0.2 0.78 0.12" material="short_obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_142" mocap="true" pos="100 100 -5">
+      <geom name="vobs_142" type="box" size="0.2 0.243 0.12" material="short_obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_143" mocap="true" pos="100 100 -5">
+      <geom name="vobs_143" type="box" size="0.2 0.297 0.4" material="obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_144" mocap="true" pos="100 100 -5">
+      <geom name="vobs_144" type="box" size="0.2 0.377 0.12" material="short_obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_145" mocap="true" pos="100 100 -5">
+      <geom name="vobs_145" type="box" size="0.2 0.188 0.4" material="obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_146" mocap="true" pos="100 100 -5">
+      <geom name="vobs_146" type="box" size="0.2 0.465 0.12" material="short_obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_147" mocap="true" pos="100 100 -5">
+      <geom name="vobs_147" type="box" size="0.2 0.466 0.4" material="obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_148" mocap="true" pos="100 100 -5">
+      <geom name="vobs_148" type="box" size="0.2 0.443 0.4" material="obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_149" mocap="true" pos="100 100 -5">
+      <geom name="vobs_149" type="box" size="0.2 0.845 0.12" material="short_obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_150" mocap="true" pos="100 100 -5">
+      <geom name="vobs_150" type="box" size="0.2 0.72 0.4" material="obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_151" mocap="true" pos="100 100 -5">
+      <geom name="vobs_151" type="box" size="0.2 0.501 0.4" material="obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_152" mocap="true" pos="100 100 -5">
+      <geom name="vobs_152" type="box" size="0.2 0.667 0.12" material="short_obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_153" mocap="true" pos="100 100 -5">
+      <geom name="vobs_153" type="box" size="0.2 0.395 0.12" material="short_obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_154" mocap="true" pos="100 100 -5">
+      <geom name="vobs_154" type="box" size="0.2 0.719 0.4" material="obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_155" mocap="true" pos="100 100 -5">
+      <geom name="vobs_155" type="box" size="0.2 0.789 0.12" material="short_obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_156" mocap="true" pos="100 100 -5">
+      <geom name="vobs_156" type="box" size="0.2 0.347 0.4" material="obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_157" mocap="true" pos="100 100 -5">
+      <geom name="vobs_157" type="box" size="0.2 0.744 0.4" material="obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_158" mocap="true" pos="100 100 -5">
+      <geom name="vobs_158" type="box" size="0.2 0.496 0.12" material="short_obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_159" mocap="true" pos="100 100 -5">
+      <geom name="vobs_159" type="box" size="0.2 0.352 0.12" material="short_obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_160" mocap="true" pos="100 100 -5">
+      <geom name="vobs_160" type="box" size="0.2 0.867 0.12" material="short_obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_161" mocap="true" pos="100 100 -5">
+      <geom name="vobs_161" type="box" size="0.2 0.773 0.12" material="short_obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_162" mocap="true" pos="100 100 -5">
+      <geom name="vobs_162" type="box" size="0.2 0.885 0.4" material="obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_163" mocap="true" pos="100 100 -5">
+      <geom name="vobs_163" type="box" size="0.2 0.846 0.4" material="obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_164" mocap="true" pos="100 100 -5">
+      <geom name="vobs_164" type="box" size="0.2 0.67 0.12" material="short_obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_165" mocap="true" pos="100 100 -5">
+      <geom name="vobs_165" type="box" size="0.2 0.373 0.12" material="short_obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_166" mocap="true" pos="100 100 -5">
+      <geom name="vobs_166" type="box" size="0.2 0.627 0.12" material="short_obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_167" mocap="true" pos="100 100 -5">
+      <geom name="vobs_167" type="box" size="0.2 0.677 0.4" material="obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_168" mocap="true" pos="100 100 -5">
+      <geom name="vobs_168" type="box" size="0.2 0.45 0.12" material="short_obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_169" mocap="true" pos="100 100 -5">
+      <geom name="vobs_169" type="box" size="0.2 0.423 0.12" material="short_obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_170" mocap="true" pos="100 100 -5">
+      <geom name="vobs_170" type="box" size="0.2 0.699 0.12" material="short_obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_171" mocap="true" pos="100 100 -5">
+      <geom name="vobs_171" type="box" size="0.2 0.303 0.12" material="short_obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_172" mocap="true" pos="100 100 -5">
+      <geom name="vobs_172" type="box" size="0.2 0.286 0.12" material="short_obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_173" mocap="true" pos="100 100 -5">
+      <geom name="vobs_173" type="box" size="0.2 0.669 0.12" material="short_obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_174" mocap="true" pos="100 100 -5">
+      <geom name="vobs_174" type="box" size="0.2 0.834 0.4" material="obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_175" mocap="true" pos="100 100 -5">
+      <geom name="vobs_175" type="box" size="0.2 0.83 0.4" material="obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_176" mocap="true" pos="100 100 -5">
+      <geom name="vobs_176" type="box" size="0.2 0.466 0.4" material="obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_177" mocap="true" pos="100 100 -5">
+      <geom name="vobs_177" type="box" size="0.2 0.57 0.4" material="obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_178" mocap="true" pos="100 100 -5">
+      <geom name="vobs_178" type="box" size="0.2 0.395 0.12" material="short_obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_179" mocap="true" pos="100 100 -5">
+      <geom name="vobs_179" type="box" size="0.2 0.741 0.4" material="obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_180" mocap="true" pos="100 100 -5">
+      <geom name="vobs_180" type="box" size="0.2 0.77 0.4" material="obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_181" mocap="true" pos="100 100 -5">
+      <geom name="vobs_181" type="box" size="0.2 0.312 0.12" material="short_obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_182" mocap="true" pos="100 100 -5">
+      <geom name="vobs_182" type="box" size="0.2 0.734 0.4" material="obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_183" mocap="true" pos="100 100 -5">
+      <geom name="vobs_183" type="box" size="0.2 0.57 0.12" material="short_obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_184" mocap="true" pos="100 100 -5">
+      <geom name="vobs_184" type="box" size="0.2 0.649 0.12" material="short_obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_185" mocap="true" pos="100 100 -5">
+      <geom name="vobs_185" type="box" size="0.2 0.757 0.4" material="obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_186" mocap="true" pos="100 100 -5">
+      <geom name="vobs_186" type="box" size="0.2 0.166 0.4" material="obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_187" mocap="true" pos="100 100 -5">
+      <geom name="vobs_187" type="box" size="0.2 0.393 0.12" material="short_obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_188" mocap="true" pos="100 100 -5">
+      <geom name="vobs_188" type="box" size="0.2 0.909 0.4" material="obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_189" mocap="true" pos="100 100 -5">
+      <geom name="vobs_189" type="box" size="0.2 0.442 0.12" material="short_obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_190" mocap="true" pos="100 100 -5">
+      <geom name="vobs_190" type="box" size="0.2 0.899 0.12" material="short_obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_191" mocap="true" pos="100 100 -5">
+      <geom name="vobs_191" type="box" size="0.2 0.383 0.12" material="short_obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_192" mocap="true" pos="100 100 -5">
+      <geom name="vobs_192" type="box" size="0.2 0.934 0.12" material="short_obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_193" mocap="true" pos="100 100 -5">
+      <geom name="vobs_193" type="box" size="0.2 0.465 0.4" material="obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_194" mocap="true" pos="100 100 -5">
+      <geom name="vobs_194" type="box" size="0.2 0.514 0.4" material="obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_195" mocap="true" pos="100 100 -5">
+      <geom name="vobs_195" type="box" size="0.2 0.253 0.4" material="obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_196" mocap="true" pos="100 100 -5">
+      <geom name="vobs_196" type="box" size="0.2 0.822 0.12" material="short_obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_197" mocap="true" pos="100 100 -5">
+      <geom name="vobs_197" type="box" size="0.2 0.48 0.12" material="short_obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_198" mocap="true" pos="100 100 -5">
+      <geom name="vobs_198" type="box" size="0.2 0.291 0.4" material="obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_199" mocap="true" pos="100 100 -5">
+      <geom name="vobs_199" type="box" size="0.2 0.366 0.12" material="short_obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+    <body name="varied_obs_200" mocap="true" pos="100 100 -5">
+      <geom name="vobs_200" type="box" size="0.2 0.853 0.4" material="obstacle_mat" contype="1" conaffinity="1"/>
+    </body>
+
+
+    <!-- Top-down overview camera (for the side-by-side cv2 display) -->
+    <camera name="top_cam" pos="0 0 8" xyaxes="1 0 0 0 1 0" fovy="75"/>
+  </worldbody>
+</mujoco>

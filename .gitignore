@@ -1,0 +1,37 @@
+# Virtual environments
+.venv*/
+venv/
+__pycache__/
+*.pyc
+*.pyo
+
+# Logs and runtime artifacts
+logs/
+*.log
+*.csv
+
+# Recordings & captured video
+recordings/
+*.mp4
+*.mov
+*.avi
+
+# Local rollback / backup folders created during iteration
+_pre_rollback_*/
+*.bak
+*_backup/
+
+# macOS metadata
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Editor / IDE
+.cursor/
+.idea/
+.vscode/
+
+# OS swap & temp
+*.swp
+*.swo
+*~
