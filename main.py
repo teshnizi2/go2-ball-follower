@@ -1235,7 +1235,9 @@ def _build_info_tile(w: int, h: int, *,
                      det_conf: float, ball_dist: float,
                      lane_label: str, robot_yaw: float,
                      robot_x: float,
-                     fell: bool) -> np.ndarray:
+                     fell: bool,
+                     speed_hist=None,
+                     status_badge=None) -> np.ndarray:
     """Bottom-right square info panel — telemetry + heading compass."""
     tile = np.full((h, w, 3), _PANEL, dtype=np.uint8)
 
@@ -1252,26 +1254,71 @@ def _build_info_tile(w: int, h: int, *,
     cv2.putText(tile, "REC", (w - 14, rh - 8),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.40, rec_col, 1, cv2.LINE_AA)
 
-    # Two-column key:value rows.
+    # Status badge directly under header (left-aligned), large LED + label.
+    if status_badge is not None:
+        _slabel, _scol = status_badge
+        by = rh + 22
+        cv2.circle(tile, (16, by), 6, _scol, -1, cv2.LINE_AA)
+        cv2.circle(tile, (16, by), 8, (220, 220, 220), 1, cv2.LINE_AA)
+        cv2.putText(tile, _slabel, (30, by + 5),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.55, _scol, 1, cv2.LINE_AA)
+
+    # Progress bar (rows passed / total).
+    bar_x0, bar_y0 = 10, rh + 40
+    bar_w, bar_h   = w - 20, 10
+    cv2.rectangle(tile, (bar_x0, bar_y0), (bar_x0 + bar_w, bar_y0 + bar_h),
+                  (45, 50, 65), -1)
+    if total_rows > 0:
+        _frac = max(0.0, min(1.0, n_passed / float(total_rows)))
+        _fill_w = int(_frac * bar_w)
+        cv2.rectangle(tile, (bar_x0, bar_y0),
+                      (bar_x0 + _fill_w, bar_y0 + bar_h),
+                      (90, 220, 120), -1)
+    cv2.rectangle(tile, (bar_x0, bar_y0),
+                  (bar_x0 + bar_w, bar_y0 + bar_h),
+                  _CYAN, 1, cv2.LINE_AA)
+    cv2.putText(tile, f"{n_passed}/{total_rows}",
+                (bar_x0 + bar_w - 60, bar_y0 - 2),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.38, _TXT_LO, 1, cv2.LINE_AA)
+
+    # Two-column key:value rows (compact).
     rows = [
         ("TIME",    f"{int(sim_t // 60):02d}:{int(sim_t % 60):02d}"),
         ("POS X",   f"{robot_x:.1f} m"),
-        ("ROW",     f"{n_passed} / {total_rows}"),
         ("SPEED",   f"{vx_cmd:+.2f} m/s"),
-        ("YAW RATE",f"{vyaw_cmd:+.2f} r/s"),
+        ("YAW",     f"{vyaw_cmd:+.2f} r/s"),
         ("DETECT",  f"{int(det_conf * 100)} %"),
         ("BALL",    f"{ball_dist:.2f} m"),
         ("LANE",    lane_label),
-        ("STATE",   "FALLEN" if fell else "OK"),
     ]
-    y = rh + 14
+    y = rh + 70
     line_h = 17
     for k, v in rows:
         cv2.putText(tile, k, (10, y),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.42, _TXT_LO, 1, cv2.LINE_AA)
-        cv2.putText(tile, v, (88, y),
+        cv2.putText(tile, v, (74, y),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.46, _TXT_HI, 1, cv2.LINE_AA)
         y += line_h
+
+    # Speed sparkline — bottom strip of the tile, no overlapping label
+    # (the cyan curve self-identifies; the SPEED row above gives the value).
+    if speed_hist and len(speed_hist) >= 2:
+        sp_h   = 22
+        sp_x0  = 10
+        sp_y0  = h - sp_h - 6
+        sp_w   = w - 90    # leave room on right for the compass dial
+        cv2.rectangle(tile, (sp_x0, sp_y0), (sp_x0 + sp_w, sp_y0 + sp_h),
+                      (35, 38, 48), -1)
+        cv2.rectangle(tile, (sp_x0, sp_y0), (sp_x0 + sp_w, sp_y0 + sp_h),
+                      _CYAN, 1, cv2.LINE_AA)
+        _smax = max(0.5, max(speed_hist))
+        _n = len(speed_hist)
+        for _i in range(_n - 1):
+            _px = sp_x0 + int(_i / float(max(1, _n - 1)) * sp_w)
+            _nx = sp_x0 + int((_i + 1) / float(max(1, _n - 1)) * sp_w)
+            _py = sp_y0 + sp_h - int(max(0.0, speed_hist[_i]) / _smax * (sp_h - 2)) - 1
+            _ny = sp_y0 + sp_h - int(max(0.0, speed_hist[_i + 1]) / _smax * (sp_h - 2)) - 1
+            cv2.line(tile, (_px, _py), (_nx, _ny), (80, 220, 250), 1, cv2.LINE_AA)
 
     # Heading compass — small dial in the bottom-right corner.
     cx, cy = w - 36, h - 36
@@ -1499,7 +1546,7 @@ def main() -> None:
         _wid = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_GEOM, _wname)
         if _wid >= 0:
             wall_geom_ids.add(_wid)
-    for i in range(1, 201):
+    for i in range(1, 2001):   # scan up to 2000 obstacle slots
         bid = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, f"varied_obs_{i}")
         if bid < 0:
             continue
@@ -1825,24 +1872,58 @@ def main() -> None:
             # place for 2 s — usually pops the gait out of a wedge.
             _now_t  = float(data.time)
             _now_rx = float(data.qpos[0])
+            _now_ry = float(data.qpos[1])
             if "stuck_hist" not in locals():
                 stuck_hist = collections.deque(maxlen=160)   # ~3.2 s at 50 Hz
                 stuck_spin_until = -1.0
                 stuck_spin_dir = 1.0
-            stuck_hist.append((_now_t, _now_rx))
+            stuck_hist.append((_now_t, _now_rx, _now_ry))
             if _now_t < stuck_spin_until:
                 vyaw_cmd = stuck_spin_dir * 0.8
                 vx_cmd   = 0.0
-            elif len(stuck_hist) == stuck_hist.maxlen and vx_cmd > 0.2:
-                _t0, _x0 = stuck_hist[0]
+            elif len(stuck_hist) == stuck_hist.maxlen and _now_t > 8.0:
+                # Stuck = the robot stayed inside a 1-m diameter circle
+                # (0.5-m radius) for 3+ s.  Skip first 8 s (startup ramp).
+                # Trigger spin-out FIRST and, if that still leaves us
+                # pinned, flag the run as FAILED.
+                _t0, _x0, _y0 = stuck_hist[0]
                 _dt = _now_t - _t0
-                if _dt > 2.8 and (_now_rx - _x0) < 0.30:
-                    # Stuck: spin out for 2 s, alternating direction each event.
+                # Max distance from oldest sample in the window.
+                _max_d = 0.0
+                for _ti, _xi, _yi in stuck_hist:
+                    _d = math.hypot(_xi - _x0, _yi - _y0)
+                    if _d > _max_d:
+                        _max_d = _d
+                # If robot has moved >2 m in x since the last stuck event,
+                # the recovery worked — reset the consecutive counter.
+                if "stuck_event_count" in locals() and stuck_event_count > 0:
+                    if "_last_stuck_rx" in locals():
+                        if (_now_rx - _last_stuck_rx) > 2.0:
+                            stuck_event_count = 0
+                if _dt >= 3.0 and _max_d < 0.5:
+                    # Persistent stuck → first try a spin-out recovery.
+                    if "stuck_event_count" not in locals():
+                        stuck_event_count = 0
+                    stuck_event_count += 1
                     stuck_spin_until = _now_t + 2.0
                     stuck_spin_dir = -stuck_spin_dir
                     stuck_hist.clear()
-                    print(f"[STUCK] spin-out at t={_now_t:.1f}s rx={_now_rx:.2f} "
-                          f"(progress={_now_rx-_x0:.2f} m in {_dt:.1f}s)", flush=True)
+                    _last_stuck_rx = _now_rx
+                    print(f"[STUCK] event #{stuck_event_count} at t={_now_t:.1f}s "
+                          f"rx={_now_rx:.2f} ry={_now_ry:.2f} max_d={_max_d:.2f}m "
+                          f"in {_dt:.1f}s — spin-out", flush=True)
+                    # If this is the 2nd consecutive stuck event without
+                    # making >2m of forward progress, declare FAIL.
+                    if stuck_event_count >= 2:
+                        if "collision_count" not in locals():
+                            collision_count = 0
+                        if "collision_failed" not in locals():
+                            collision_failed = False
+                        collision_count += 1
+                        collision_failed = True
+                        print(f"[STUCK-FAIL] robot stuck repeatedly — "
+                              f"terminating at rx={_now_rx:.2f}", flush=True)
+                        running = False
 
             vx_g     = 0.0 if incapped else (vx_cmd * ROBOT_SPEED_SCALE)
             vyaw_g   = 0.0 if incapped else (vyaw_cmd * tilt_scale)
@@ -2001,12 +2082,12 @@ def main() -> None:
                     if _best is not None:
                         _, _bx_obs, _by_safe = _best
                         _inject_safety_wall_geom(scene, _bx_obs, _by_safe, obs_half_x=0.40)
-                    # RED arrow on the floor — forecasted path the robot
+                    # BLUE arrow on the floor — forecasted path the robot
                     # plans to follow to reach the ball.
                     if ("cached_plan_waypoints" in locals()
                             and cached_plan_waypoints):
                         _inject_path_geoms(scene, cached_plan_waypoints,
-                                           rgba=(1.0, 0.0, 0.0, 0.95))
+                                           rgba=(0.15, 0.45, 1.0, 0.95))
 
                 # Update the stabilized chase camera's lookat (heavy
                 # low-pass filter on the robot's xy + locked z) so the
@@ -2803,6 +2884,9 @@ def main() -> None:
                                 cv2.FONT_HERSHEY_SIMPLEX, 1.4, (10, 10, 14), 6, cv2.LINE_AA)
                     cv2.putText(chase_bgr, _stage_text, (16, chase_bgr.shape[0] - 18),
                                 cv2.FONT_HERSHEY_SIMPLEX, 1.4, (60, 235, 255), 2, cv2.LINE_AA)
+
+                    # Chase view kept clean — speed, ball distance, and
+                    # progress all live in the telemetry panel.
                     if _failed:
                         # Red FAIL overlay
                         _ovr = chase_bgr.copy()
@@ -2819,6 +2903,19 @@ def main() -> None:
                     # Build 720x720 dashboard: chase + 4 cam tiles + info.
                     _lane = (mover.phase_label.split("lane=")[-1][:6]
                              if "lane=" in mover.phase_label else "—")
+                    # Maintain rolling history of recent speeds for sparkline.
+                    if "_speed_hist" not in locals():
+                        _speed_hist = collections.deque(maxlen=60)
+                    _speed_hist.append(float(vx_cmd))
+                    # Derive a status badge from the current state.
+                    if fell:
+                        _status_badge = ("FALLEN", (30, 30, 230))
+                    elif "detour_obs_x" in locals() and detour_obs_x > 0:
+                        _status_badge = ("AVOIDING", (40, 180, 240))
+                    elif float(conf or 0.0) > 0.4:
+                        _status_badge = ("TRACKING", (60, 200, 80))
+                    else:
+                        _status_badge = ("SEARCHING", (200, 180, 50))
                     info_kwargs = dict(
                         sim_t=sim_time,
                         n_passed=n_passed,
@@ -2833,6 +2930,8 @@ def main() -> None:
                         fell=fell,
                         robot_xy=(rx, ry),
                         ball_xy=(bx, by),
+                        speed_hist=list(_speed_hist),
+                        status_badge=_status_badge,
                     )
                     dashboard = _build_dashboard(
                         chase_bgr,
