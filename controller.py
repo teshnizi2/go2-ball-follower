@@ -174,7 +174,7 @@ MAX_VX:      float = 0.80   # COMMAND cap — 60-s stability probe showed (0.8, 
 # simply holds position (vx=0) rather than reversing.
 # For true proximity (ball actually < 0.5 m), the proximity guard below limits
 # yaw and keeps vx=0 anyway.
-MAX_VX_BACK: float = 0.0    # retreat disabled
+MAX_VX_BACK: float = 0.4    # allow gentle backup for stuck-recovery
 
 # Cap aggressive yaw only when physically very close (separate from 1.0 m goal).
 PROXIMITY_YAW_CAP_M: float = 0.55

@@ -476,7 +476,14 @@ class DemoTargetMover:
             ROW_GAP = float(os.environ.get("OBS_MIN_GAP", "5.4"))
             ROW_START_X = float(os.environ.get("OBS_MIN_X", "4.0"))
             n_rows_passed = max(0, int((self._robot_x - ROW_START_X) / ROW_GAP))
-            stage = 1 + n_rows_passed // 3
+            # Stage advances every STAGE_SECONDS of sim time (default 20 s).
+            # Falls back to row-based advancement if sim_time isn't available.
+            _STAGE_SECONDS = float(os.environ.get("STAGE_SECONDS", "20.0"))
+            _sim_t = getattr(self, "_sim_time", None)
+            if _sim_t is not None:
+                stage = 1 + int(_sim_t / _STAGE_SECONDS)
+            else:
+                stage = 1 + n_rows_passed // 3
             t = self._param_t
             # Stage 2+: lateral sine sway
             if stage >= 2:
@@ -1575,17 +1582,51 @@ def main() -> None:
         obs_max_x   = float(os.environ.get("OBS_MAX_X", "275.0"))
         obs_min_gap = float(os.environ.get("OBS_MIN_GAP", "5.4"))
 
-        # Each ROW has 2 obstacles at the same x.  Pair widest body with
-        # narrowest body so each row's total y-extent stays manageable
-        # (max wide-narrow pair: 1.88 + 0.31 = 2.19 m, fits in 5 m corridor).
-        bodies_sorted = sorted(obstacle_mocap_ids,
-                               key=lambda m: obstacle_y_half_by_mid[m])
+        # Each ROW has 2 obstacles at the same x.  Restrict to NARROW
+        # bodies only (y_half ≤ MAX_OBS_HALF) so the passage between each
+        # pair is reliably wide enough for the policy's lateral tracking
+        # error.  Wide obstacles produced unreliable navigation.
+        MAX_OBS_HALF = float(os.environ.get("MAX_OBS_HALF", "0.55"))
+        narrow_pool = [m for m in obstacle_mocap_ids
+                       if obstacle_y_half_by_mid[m] <= MAX_OBS_HALF]
+        if len(narrow_pool) < 2 * n_rows:
+            # Fall back to using all if not enough narrow ones.
+            narrow_pool = list(obstacle_mocap_ids)
+        # Split the narrow pool into TALL (black) vs SHORT (orange) groups.
+        # As row_idx grows, bias each row toward more TALL obstacles so the
+        # corridor visually shifts from orange-heavy → all-black in later rows.
+        tall_sorted = sorted(
+            [m for m in narrow_pool if obstacle_is_tall_by_mid.get(m, False)],
+            key=lambda m: obstacle_y_half_by_mid[m])
+        short_sorted = sorted(
+            [m for m in narrow_pool if not obstacle_is_tall_by_mid.get(m, False)],
+            key=lambda m: obstacle_y_half_by_mid[m])
+
+        def _tall_fraction_for_row(row_idx_local: int) -> float:
+            # Mirrors stage groupings (every 3 rows = a stage).
+            row_stage = 1 + row_idx_local // 3
+            if row_stage <= 1: return 0.50
+            if row_stage == 2: return 0.70
+            if row_stage == 3: return 0.85
+            if row_stage == 4: return 0.95
+            return 1.0   # stage 5+ → all tall (black)
+
         pairs = []
-        n_total = len(bodies_sorted)
-        for k in range(min(n_rows, n_total // 2)):
-            wide_mid   = bodies_sorted[n_total - 1 - k]   # widest
-            narrow_mid = bodies_sorted[k]                  # narrowest
-            pairs.append((wide_mid, narrow_mid))
+        tall_i = 0; short_i = 0
+        for row_idx_pre in range(n_rows):
+            frac = _tall_fraction_for_row(row_idx_pre)
+            chosen = []
+            for _ in range(2):
+                want_tall = random.random() < frac
+                if want_tall and tall_i < len(tall_sorted):
+                    chosen.append(tall_sorted[tall_i]); tall_i += 1
+                elif short_i < len(short_sorted):
+                    chosen.append(short_sorted[short_i]); short_i += 1
+                elif tall_i < len(tall_sorted):
+                    chosen.append(tall_sorted[tall_i]); tall_i += 1
+            if len(chosen) == 2:
+                chosen.sort(key=lambda m: obstacle_y_half_by_mid[m])
+                pairs.append((chosen[1], chosen[0]))   # (wide, narrow)
 
         # Even-spaced row x positions with small jitter.
         usable = obs_max_x - obs_min_x
@@ -1877,8 +1918,13 @@ def main() -> None:
                 stuck_hist = collections.deque(maxlen=160)   # ~3.2 s at 50 Hz
                 stuck_spin_until = -1.0
                 stuck_spin_dir = 1.0
+                stuck_backup_until = -1.0   # NEW: backup recovery mode
             stuck_hist.append((_now_t, _now_rx, _now_ry))
-            if _now_t < stuck_spin_until:
+            if _now_t < stuck_backup_until:
+                # Backup recovery: drive backwards, slight wiggle, no detection.
+                vx_cmd = -0.30
+                vyaw_cmd = stuck_spin_dir * 0.30
+            elif _now_t < stuck_spin_until:
                 vyaw_cmd = stuck_spin_dir * 0.8
                 vx_cmd   = 0.0
             elif len(stuck_hist) == stuck_hist.maxlen and _now_t > 8.0:
@@ -1901,29 +1947,39 @@ def main() -> None:
                         if (_now_rx - _last_stuck_rx) > 2.0:
                             stuck_event_count = 0
                 if _dt >= 3.0 and _max_d < 0.5:
-                    # Persistent stuck → first try a spin-out recovery.
+                    # Persistent stuck — escalating recovery ladder:
+                    #   #1: spin left           #2: spin right
+                    #   #3: BACK UP 1.5 s       #4: FAIL
                     if "stuck_event_count" not in locals():
                         stuck_event_count = 0
                     stuck_event_count += 1
-                    stuck_spin_until = _now_t + 2.0
-                    stuck_spin_dir = -stuck_spin_dir
                     stuck_hist.clear()
                     _last_stuck_rx = _now_rx
-                    print(f"[STUCK] event #{stuck_event_count} at t={_now_t:.1f}s "
-                          f"rx={_now_rx:.2f} ry={_now_ry:.2f} max_d={_max_d:.2f}m "
-                          f"in {_dt:.1f}s — spin-out", flush=True)
-                    # If this is the 2nd consecutive stuck event without
-                    # making >2m of forward progress, declare FAIL.
-                    if stuck_event_count >= 2:
+                    if stuck_event_count == 1:
+                        stuck_spin_dir = 1.0
+                        stuck_spin_until = _now_t + 2.0
+                        _action = "spin LEFT"
+                    elif stuck_event_count == 2:
+                        stuck_spin_dir = -1.0
+                        stuck_spin_until = _now_t + 2.0
+                        _action = "spin RIGHT"
+                    elif stuck_event_count == 3:
+                        stuck_backup_until = _now_t + 1.5
+                        _action = "BACK UP"
+                    else:
                         if "collision_count" not in locals():
                             collision_count = 0
                         if "collision_failed" not in locals():
                             collision_failed = False
                         collision_count += 1
                         collision_failed = True
-                        print(f"[STUCK-FAIL] robot stuck repeatedly — "
-                              f"terminating at rx={_now_rx:.2f}", flush=True)
+                        print(f"[STUCK-FAIL] robot stuck repeatedly (4 events) "
+                              f"— terminating at rx={_now_rx:.2f}", flush=True)
                         running = False
+                        _action = "FAIL"
+                    print(f"[STUCK] event #{stuck_event_count} at t={_now_t:.1f}s "
+                          f"rx={_now_rx:.2f} ry={_now_ry:.2f} max_d={_max_d:.2f}m "
+                          f"in {_dt:.1f}s — {_action}", flush=True)
 
             vx_g     = 0.0 if incapped else (vx_cmd * ROBOT_SPEED_SCALE)
             vyaw_g   = 0.0 if incapped else (vyaw_cmd * tilt_scale)
@@ -1989,6 +2045,7 @@ def main() -> None:
             # Target path follows the configured mode; on sustained loss it waits
             # in place until re-acquired (after a short grace period).
             mover.set_robot_position(rx, ry)
+            mover._sim_time = sim_time   # so stage advances on wall-time
             mover.step(CTRL_DT, data.mocap_pos, ball_visible=ball_visible_prev)
             bx = float(data.mocap_pos[0, 0])
             by = float(data.mocap_pos[0, 1])
@@ -2550,18 +2607,19 @@ def main() -> None:
                                 # min-(passage-to-ball) heuristic often picked
                                 # a band on the far side, forcing a big swing.
                                 def _total_len(b):
-                                    by_in = max(b[0], min(b[1], by))      # clamp ball y into band
-                                    ry_in = max(b[0], min(b[1], ry))      # clamp robot y into band
-                                    # Choose the band point closest to a line
-                                    # connecting robot and ball — approximated
-                                    # by averaging the two clamped y's.
+                                    by_in = max(b[0], min(b[1], by))
+                                    ry_in = max(b[0], min(b[1], ry))
                                     y_choice = 0.5 * (by_in + ry_in)
                                     d1 = math.hypot(nearest_ox - rx, y_choice - ry)
                                     d2 = math.hypot(bx - nearest_ox, by - y_choice)
-                                    # Penalize narrow bands so we don't pick
-                                    # one that barely fits.
                                     width = (b[1] - b[0])
-                                    return d1 + d2 - 0.05 * width
+                                    # Heavy penalty for sub-body-width bands so
+                                    # the planner never commits to a passage
+                                    # the robot can't actually fit through;
+                                    # still selectable if it's the only option.
+                                    _BODY_W = 0.65
+                                    width_penalty = max(0.0, _BODY_W - width) * 5.0
+                                    return d1 + d2 - 0.05 * width + width_penalty
                                 best = min(free_bands, key=_total_len)
                             # Aim through the band at the point closest to
                                 # the straight robot→ball line (shortest path).
@@ -2867,7 +2925,10 @@ def main() -> None:
                     for k_, ox_, oy_ in all_robot_obstacles:
                         if ox_ + OBS_X_HALF < rx:
                             seen_x.add(round(ox_, 1))
-                    n_passed = len(seen_x)        # 1 object = 1 row (user convention)
+                    # 1 row = 2 objects (user convention).  seen_x is the set
+                    # of unique obstacle x-positions, so its size IS the row
+                    # count (both objects in a row share the same x).
+                    n_passed = len(seen_x)
 
                     _stage_num = getattr(mover, "_stage", 1)
                     _collisions = locals().get("collision_count", 0)
@@ -2919,7 +2980,7 @@ def main() -> None:
                     info_kwargs = dict(
                         sim_t=sim_time,
                         n_passed=n_passed,
-                        total_rows=2 * int(os.environ.get("OBS_ROWS", "50")),
+                        total_rows=int(os.environ.get("OBS_ROWS", "50")),
                         vx_cmd=vx_cmd,
                         vyaw_cmd=vyaw_cmd,
                         det_conf=float(conf or 0.0),
@@ -2948,7 +3009,7 @@ def main() -> None:
 
                     # Early-stop: once we've cleared all configured rows,
                     # there's no more obstacle interaction worth recording.
-                    _stop_rows = 2 * int(os.environ.get("OBS_ROWS", "50"))   # 1 object = 1 row
+                    _stop_rows = int(os.environ.get("OBS_ROWS", "50"))   # 1 row = 2 objects
                     # Robust stop: any of (a) n_passed reached target,
                     # (b) robot is past the last placed obstacle by ≥5 m.
                     _last_obs_x = max((ox_ for _t, ox_, _oy in all_robot_obstacles),
