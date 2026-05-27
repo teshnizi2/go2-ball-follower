@@ -51,6 +51,11 @@ export ROBOT_SAFETY="$S"
 export DETOUR_MARGIN="$D"
 export OBS_BRAKE_LATERAL="$L"
 
+# ── speed defaults (override via env before calling run.sh) ──────────────────
+export SIM_SPEED="${SIM_SPEED:-3.0}"      # run ~3× faster than real-time
+export RENDER_SKIP="${RENDER_SKIP:-4}"    # render every 4th step (~12 fps display)
+export GO2_SHADOWS="${GO2_SHADOWS:-0}"    # shadows OFF for speed; set 1 for recordings
+
 if [ "$DO_HEADLESS" = "1" ]; then
   export GO2_HEADLESS=1
 fi

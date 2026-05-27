@@ -75,8 +75,9 @@ Keys: **Q / Esc** = quit · **R** = reset · **P** = pause.
 | Env var | Default | Purpose |
 |---------|---------|---------|
 | `GO2_GUI_VIEW` | `chase` | `chase` = 720×720 dashboard (default) · `head` = single head-cam · `full` = 2×2 mosaic |
-| `SIM_SPEED` | 1.0 | Wall-clock scaling (e.g. 3 = 3× faster playback) |
-| `RENDER_SKIP` | 1 | Render every Nth control step; reduces CPU load |
+| `SIM_SPEED` | **3.0** | Wall-clock scaling (e.g. 3 = 3× faster playback); `run.sh` default |
+| `RENDER_SKIP` | **4** | Render every Nth control step (~12 fps display); `run.sh` default |
+| `GO2_SHADOWS` | **0** | `0` = shadows off (fast); `1` = shadows on (use for recordings) |
 | `STAGE_SECONDS` | 20.0 | Seconds between stage advances |
 | `CORRIDOR_SEED` | random | Fix the obstacle layout for reproducibility |
 | `OBS_ROWS` | 50 | Number of obstacle rows (1 row = 2 obstacles) |
