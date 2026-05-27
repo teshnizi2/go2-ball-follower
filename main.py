@@ -75,7 +75,7 @@ MAX_RUNTIME_T = float(os.environ.get("GO2_MAX_SECONDS", "0"))
 #   GO2_GUI_VIEW=head  -> fast single head-camera view (default)
 #   GO2_GUI_VIEW=chase -> single 3rd-person chase camera (fullscreen, presentation)
 #   GO2_GUI_VIEW=full  -> 2x2 mosaic (top/chase/head/rear)
-GUI_VIEW_MODE = os.environ.get("GO2_GUI_VIEW", "head").strip().lower()
+GUI_VIEW_MODE = os.environ.get("GO2_GUI_VIEW", "chase").strip().lower()
 # Forward-velocity multiplier applied to the controller's vx_cmd before it
 # enters the gait.  Default 1.0 = normal; >1.0 = faster (stress test).
 ROBOT_SPEED_SCALE = float(os.environ.get("ROBOT_SPEED_SCALE", "1.0"))
@@ -1831,15 +1831,14 @@ def main() -> None:
         cv2.namedWindow("Go2 Object Tracking", cv2.WINDOW_NORMAL)
         cv2.resizeWindow("Go2 Object Tracking", disp_w, disp_h)
         print("Simulation running — window: 'Go2 Object Tracking'")
-        if GUI_HEAD_ONLY:
-            print("  FAST GUI mode: head camera only (normal-speed preferred).")
-            print("  Set GO2_GUI_VIEW=full for 2x2 mosaic view.")
+        if GUI_CHASE_ONLY:
+            print("  DASHBOARD: chase (3D) | front vision | 2D map | telemetry panel")
+            print("  GO2_GUI_VIEW=head for head-only  |  GO2_GUI_VIEW=full for 2x2 mosaic")
+        elif not GUI_HEAD_ONLY:
+            print("  2x2 mosaic: top-down | chase | head | rear")
         else:
-            print("  LEFT = top-down view   RIGHT = robot head camera")
-            print("  Ball demo: large square path (no teleport), smooth edge motion.")
-            print("  Ball waits 5s at each corner.")
-            print("  Ball keeps moving even when out of sight (forces active search).")
-            print("  Phase label on overview + head HUD.")
+            print("  FAST GUI mode: head camera only (normal-speed preferred).")
+            print("  Set GO2_GUI_VIEW=chase for dashboard  or  GO2_GUI_VIEW=full for 2x2 mosaic.")
         print("  [Q/ESC] quit   [R] reset   [P] pause")
     else:
         print(
@@ -2022,6 +2021,9 @@ def main() -> None:
                             f"step={step_num} sim_t={sim_time:.2f}s rx={float(data.qpos[0]):.2f}",
                             flush=True,
                         )
+                        if not HEADLESS:
+                            print("[AUTO-IMPROVE] Run  ./run.sh --tune  to let the system "
+                                  "self-improve and retry on 3 random seeds.", flush=True)
                         if os.environ.get("COLLISION_STOPS_SIM", "1") == "1":
                             _collision_stop_at = step_num + 60
                     break
@@ -3234,6 +3236,15 @@ def main() -> None:
         cv2.destroyAllWindows()
     logger.close()
     print("Simulation ended.")
+    # ── Headless result summary (parsed by self_tune.py) ─────────────────
+    if HEADLESS:
+        _cf  = locals().get("collision_failed", False)
+        _np  = locals().get("n_passed", 0)
+        _nr  = int(os.environ.get("OBS_ROWS", "50"))
+        _ok  = not _cf
+        print(f"[RESULT] {'PASS' if _ok else 'FAIL'} rows={_np}/{_nr} "
+              f"collision={'yes' if _cf else 'no'}",
+              flush=True)
 
 
 if __name__ == "__main__":

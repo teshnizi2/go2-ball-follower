@@ -406,5 +406,10 @@ class RLVelocityLowLevel(LowLevelBase):
 
 
 def default_low_level(model: mujoco.MjModel) -> LowLevelBase:
-    """Return the best available low-level controller (RL policy, else trot)."""
+    """Return the best available low-level controller (RL policy, else trot).
+    GO2_NO_TORCH=1 skips torch entirely (useful when libtorch is iCloud-evicted)."""
+    import os as _os
+    if _os.environ.get("GO2_NO_TORCH", "0") == "1":
+        print("[low_level] GO2_NO_TORCH=1 — using TrotPDGait fallback (no torch)", flush=True)
+        return TrotPDGait(model)
     return RLVelocityLowLevel(model)

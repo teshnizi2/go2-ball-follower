@@ -51,16 +51,13 @@ pip install -r requirements.txt
 ./run.sh
 ```
 
-Or run the full demo configuration explicitly:
+`run.sh` automatically sets corridor mode, loads the validated best config from
+`best_config.json`, and opens the 720×720 dashboard window.
+
+To self-tune parameters on 3 random seeds before launching (runs headless trials, saves
+the best config, then opens the GUI):
 ```bash
-GO2_HEADLESS=0 GUI=1 GO2_GUI_VIEW=chase \
-  SIM_SPEED=20.0 RENDER_SKIP=5 STAGE_SECONDS=20.0 \
-  BALL_PATH_MODE=corridor \
-  OBS_ROWS=80 OBS_MIN_GAP=8.0 OBS_MIN_X=4.0 OBS_MAX_X=650.0 \
-  MAX_OBS_HALF=0.55 CORRIDOR_SEED=100 \
-  ACTION_SCALE_MULT=1.4 ROBOT_SAFETY=0.45 DETOUR_MARGIN=0.30 OBS_BRAKE_LATERAL=0.65 \
-  ADAPTIVE_SPEED=1 OBSTACLE_BRAKE=1 WALL_BRAKE=1 SEARCH_AFTER_STEPS=30 \
-  ./.venv312/bin/python3.12 -u main.py
+./run.sh --tune
 ```
 
 A 720×720 window will open showing the live dashboard.  
@@ -77,19 +74,22 @@ Keys: **Q / Esc** = quit · **R** = reset · **P** = pause.
 
 | Env var | Default | Purpose |
 |---------|---------|---------|
-| `SIM_SPEED` | 1.0 | Wall-clock scaling (e.g. 20 = 20× faster playback) |
-| `RENDER_SKIP` | 1 | Render every Nth control step; lowers CPU at the cost of vision rate |
+| `GO2_GUI_VIEW` | `chase` | `chase` = 720×720 dashboard (default) · `head` = single head-cam · `full` = 2×2 mosaic |
+| `SIM_SPEED` | 1.0 | Wall-clock scaling (e.g. 3 = 3× faster playback) |
+| `RENDER_SKIP` | 1 | Render every Nth control step; reduces CPU load |
 | `STAGE_SECONDS` | 20.0 | Seconds between stage advances |
-| `CORRIDOR_SEED` | random | Fix the obstacle layout |
-| `OBS_ROWS` | 80 | Number of obstacle rows (1 row = 2 obstacles) |
-| `OBS_MIN_GAP` | 8.0 | Minimum spacing between rows (m) |
-| `MAX_OBS_HALF` | 0.55 | Cap on obstacle half-width (m) — lower = more reliable passages |
-| `ACTION_SCALE_MULT` | 1.4 | Policy action gain (>2.5 collapses the gait) |
-| `ROBOT_SAFETY` | 0.45 | Halo (m) the planner adds around each obstacle |
-| `DETOUR_LOOKAHEAD` | 4.5 | How far ahead (m) the planner looks for blockers |
+| `CORRIDOR_SEED` | random | Fix the obstacle layout for reproducibility |
+| `OBS_ROWS` | 50 | Number of obstacle rows (1 row = 2 obstacles) |
+| `OBS_MIN_GAP` | 5.4 | Minimum spacing between rows (m) |
+| `MAX_OBS_HALF` | 0.55 | Cap on obstacle half-width (m) |
+| `ACTION_SCALE_MULT` | 2.0 | Policy action gain — `best_config.json` override applied by `run.sh` |
+| `ROBOT_SAFETY` | 0.75 | Safety halo (m) the planner adds around each obstacle |
+| `DETOUR_MARGIN` | 0.50 | Minimum free-band width margin (m) |
+| `OBS_BRAKE_LATERAL` | 0.85 | Lateral proximity (m) that triggers the obstacle brake |
 | `OBSTACLE_BRAKE` / `WALL_BRAKE` | 1 | Toggle the reactive brake layers |
 
-The full list lives in the env-var grep at the top of `main.py`.
+`run.sh` automatically loads the validated config from `best_config.json` (regenerate it
+any time with `./run.sh --tune`).  The full env-var list is at the top of `main.py`.
 
 ---
 
@@ -103,6 +103,9 @@ sim/
 ├── low_level.py        ─ MuJoCo policy interface (loads model_500.pt)
 ├── logger.py           ─ CSV telemetry log
 ├── joint_order.py      ─ Menagerie ↔ training-checkpoint joint remap
+├── self_tune.py        ─ Autonomous hill-climbing parameter tuner (3-seed validation)
+├── best_config.json    ─ Validated best parameters (written by self_tune.py / run.sh --tune)
+├── run.sh              ─ Launch script: loads best_config.json, sets corridor mode
 ├── scene.xml           ─ MuJoCo scene: corridor, walls, 200 mocap obstacles
 ├── assets/             ─ Go2 mesh + materials (Menagerie)
 ├── policy/

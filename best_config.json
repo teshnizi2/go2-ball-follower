@@ -1,0 +1,17 @@
+{
+  "config": {
+    "ACTION_SCALE_MULT": 2.0,
+    "ROBOT_SAFETY": 0.75,
+    "DETOUR_MARGIN": 0.5,
+    "OBS_BRAKE_LATERAL": 0.85
+  },
+  "meta": {
+    "seeds_tested": 3,
+    "rows": 15,
+    "score": "3/3",
+    "avg_rows": 0.0,
+    "from_collision": false,
+    "timestamp": "Tue May 26 23:28:16 CEST 2026",
+    "note": "fast+reliable winner from corridor-mode grid search"
+  }
+}
