@@ -1548,6 +1548,7 @@ def main() -> None:
     short_obstacle_mocap_ids: list[int] = []   # subset that's "short" (z=0.12)
     obstacle_y_half_by_mid: dict[int, float] = {}
     obstacle_is_tall_by_mid: dict[int, bool] = {}
+    obstacle_gid_by_mid: dict[int, int] = {}   # mocap id → geom id (for runtime resize/recolor)
     obstacle_geom_ids: set[int] = set()       # geom ids of all vobs_* boxes (for collision detection)
     # Wall geom IDs — any contact with these also counts as a collision/fail.
     wall_geom_ids: set[int] = set()
@@ -1566,6 +1567,7 @@ def main() -> None:
         is_tall = (z_half > 0.20)
         obstacle_y_half_by_mid[mid] = y_half
         obstacle_is_tall_by_mid[mid] = is_tall
+        obstacle_gid_by_mid[mid] = gid
         obstacle_mocap_ids.append(mid)
         if gid >= 0:
             obstacle_geom_ids.add(gid)
@@ -1688,6 +1690,31 @@ def main() -> None:
         for row_idx, (xp, (wide_mid, narrow_mid)) in enumerate(zip(xs, pairs)):
             if xp is None:
                 continue
+
+            # ── Progressive difficulty: wider + darker as rows advance ──────
+            _row_t   = row_idx / max(n_rows - 1, 1)    # 0.0 (row 0) → 1.0 (last row)
+            _w_scale = 1.0 + _row_t * 1.0              # width: 1× → 2× by last row
+            _orange  = [0.92, 0.42, 0.20, 1.0]         # warm orange (early rows)
+            _black   = [0.07, 0.07, 0.07, 1.0]         # near-black  (late rows)
+            for _m in (wide_mid, narrow_mid):
+                _gid = obstacle_gid_by_mid.get(_m, -1)
+                if _gid < 0:
+                    continue
+                # Scale lateral half-width
+                _orig = float(model.geom_size[_gid, 1])
+                _new  = min(_orig * _w_scale, MAX_OBS_HALF * 2.0)
+                model.geom_size[_gid, 1] = _new
+                obstacle_y_half_by_mid[_m] = _new
+                # Lerp colour from orange → black.
+                # Must clear matid first: MuJoCo ignores geom_rgba when a
+                # material is assigned, using the material colour instead.
+                model.geom_matid[_gid] = -1
+                for _j in range(4):
+                    model.geom_rgba[_gid, _j] = (
+                        _orange[_j] * (1.0 - _row_t) + _black[_j] * _row_t
+                    )
+            # ────────────────────────────────────────────────────────────────
+
             h_w = obstacle_y_half_by_mid[wide_mid]
             h_n = obstacle_y_half_by_mid[narrow_mid]
             row_lane_center = _row_lane_center(row_idx, float(xp))
@@ -1976,7 +2003,14 @@ def main() -> None:
                         collision_failed = True
                         print(f"[STUCK-FAIL] robot stuck repeatedly (4 events) "
                               f"— terminating at rx={_now_rx:.2f}", flush=True)
-                        running = False
+                        if os.environ.get("COLLISION_STOPS_SIM", "1") != "0":
+                            running = False
+                        else:
+                            # Recording / no-stop mode: reset stuck state and continue
+                            stuck_event_count = 0
+                            stuck_hist.clear()
+                            print("[STUCK-FAIL] COLLISION_STOPS_SIM=0 — resetting stuck count, continuing",
+                                  flush=True)
                         _action = "FAIL"
                     print(f"[STUCK] event #{stuck_event_count} at t={_now_t:.1f}s "
                           f"rx={_now_rx:.2f} ry={_now_ry:.2f} max_d={_max_d:.2f}m "
@@ -2952,18 +2986,6 @@ def main() -> None:
 
                     # Chase view kept clean — speed, ball distance, and
                     # progress all live in the telemetry panel.
-                    if _failed:
-                        # Red FAIL overlay
-                        _ovr = chase_bgr.copy()
-                        cv2.rectangle(_ovr, (0, 0), (chase_bgr.shape[1], chase_bgr.shape[0]),
-                                      (0, 0, 200), -1)
-                        cv2.addWeighted(_ovr, 0.25, chase_bgr, 0.75, 0, chase_bgr)
-                        cv2.putText(chase_bgr, "COLLISION — FAILED",
-                                    (40, chase_bgr.shape[0] // 2),
-                                    cv2.FONT_HERSHEY_SIMPLEX, 1.6, (10,10,10), 8, cv2.LINE_AA)
-                        cv2.putText(chase_bgr, "COLLISION — FAILED",
-                                    (40, chase_bgr.shape[0] // 2),
-                                    cv2.FONT_HERSHEY_SIMPLEX, 1.6, (40,40,255), 3, cv2.LINE_AA)
 
                     # Build 720x720 dashboard: chase + 4 cam tiles + info.
                     _lane = (mover.phase_label.split("lane=")[-1][:6]
@@ -3011,18 +3033,7 @@ def main() -> None:
                     if "video_writer" in locals() and video_writer is not None:
                         video_writer.write(dashboard)
 
-                    # Early-stop: once we've cleared all configured rows,
-                    # there's no more obstacle interaction worth recording.
-                    _stop_rows = int(os.environ.get("OBS_ROWS", "50"))   # 1 row = 2 objects
-                    # Robust stop: any of (a) n_passed reached target,
-                    # (b) robot is past the last placed obstacle by ≥5 m.
-                    _last_obs_x = max((ox_ for _t, ox_, _oy in all_robot_obstacles),
-                                      default=0.0)
-                    if n_passed >= _stop_rows or rx > _last_obs_x + 5.0:
-                        print(f"[REC] Stages complete — n_passed={n_passed}/{_stop_rows} "
-                              f"rx={rx:.1f} last_obs_x={_last_obs_x:.1f}; stopping.",
-                              flush=True)
-                        running = False
+                    # (auto-stop removed — user presses Q to end the recording)
                 elif GUI_HEAD_ONLY:
                     cv2.imshow("Go2 Object Tracking", head_bgr)
                     if "video_writer" in locals() and video_writer is not None:

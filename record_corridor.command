@@ -1,45 +1,44 @@
 #!/bin/bash
-# CORRIDOR — 3rd-person chase camera fullscreen recording.  Outputs 10x video.
+# CORRIDOR recording — runs until you press Q in the sim window.
+# RENDER_SKIP=33 → each video frame = 33 physics steps = 19.8× sim speed.
+# No time limit.  Press Q to stop; the video is saved automatically.
 cd "$(dirname "$0")"
 
 OUT_RAW="/tmp/go2_corridor_recording.mp4"
-OUT_10X="/tmp/go2_corridor_recording_10x.mp4"
-DESKTOP_RAW="$HOME/Desktop/go2_corridor_recording.mp4"
-DESKTOP_10X="$HOME/Desktop/go2_corridor_recording_10x.mp4"
-rm -f "$OUT_RAW" "$OUT_10X"
+OUT_FINAL="$HOME/Desktop/go2_demo_1min.mp4"
+rm -f "$OUT_RAW" "$OUT_FINAL"
 
-WALL_DUR=3000   # 50-min wall — enough to traverse 50 rows × 2 = 100 obstacles
-echo "===> Starting ${WALL_DUR}s recording (3rd-person chase view)..."
+echo "===> Recording at ~8× sim speed — press Q in the window to stop."
 PYTHONUNBUFFERED=1 \
 GO2_GUI_VIEW=chase \
+GO2_SHADOWS=1 \
 RECORD_VIDEO="$OUT_RAW" \
-RECORD_DURATION_S="$WALL_DUR" \
 RECORD_FPS=30 \
 BALL_PATH_MODE=corridor \
 BALL_CORRIDOR_SPEED=0.111 \
 BALL_MAX_LEAD=4.0 \
-BALL_LANE_DWELL=8.0 \
+BALL_LANE_DWELL=40.0 \
 OBS_ROWS=50 \
 OBS_MIN_GAP=5.4 \
 OBS_MIN_X=4.0 OBS_MAX_X=275.0 \
-SIM_SPEED=3.0 \
-RENDER_SKIP=8 \
+SIM_SPEED=0.75 \
+RENDER_SKIP=13 \
+CORRIDOR_SEED=700 \
+COLLISION_STOPS_SIM=0 \
+ACTION_SCALE_MULT=2.0 \
+ROBOT_SAFETY=0.75 \
+DETOUR_MARGIN=0.50 \
+OBS_BRAKE_LATERAL=0.85 \
 ./.venv312/bin/python main.py
 
-echo "===> Recording done. Producing 10x video..."
-TARGET_DUR=$(awk "BEGIN { printf \"%.4f\", ${WALL_DUR}/10.0 }")
+echo "===> Sim stopped. Re-encoding..."
 RAW_DUR=$(ffprobe -v error -show_entries format=duration \
-    -of default=noprint_wrappers=1:nokey=1 "$OUT_RAW")
-PTS_FACTOR=$(awk "BEGIN { printf \"%.6f\", ${TARGET_DUR}/${RAW_DUR} }")
-echo "===> raw_dur=${RAW_DUR}s target_out=${TARGET_DUR}s pts_factor=${PTS_FACTOR}"
+    -of default=noprint_wrappers=1:nokey=1 "$OUT_RAW" 2>/dev/null)
+SIM_SPEED_VIDEO=$(awk "BEGIN { printf \"%.1f\", 33 * 30 / 50 }")
+echo "===> raw_dur=${RAW_DUR}s  effective sim speed=~${SIM_SPEED_VIDEO}×"
 ffmpeg -y -loglevel error -i "$OUT_RAW" \
-    -filter:v "setpts=${PTS_FACTOR}*PTS,fps=30" -an "$OUT_10X"
+    -c:v libx264 -crf 18 -preset fast "$OUT_FINAL"
 
-echo "===> Copying videos to Desktop..."
-cp "$OUT_RAW" "$DESKTOP_RAW"
-cp "$OUT_10X" "$DESKTOP_10X"
-echo "===> Saved:"
-echo "      $DESKTOP_RAW   (raw)"
-echo "      $DESKTOP_10X   (10x compressed, ${TARGET_DUR}s)"
-echo "===> Opening 10x in default player..."
-open "$DESKTOP_10X"
+echo "===> Saved: $OUT_FINAL"
+echo "===> Opening..."
+open "$OUT_FINAL"
