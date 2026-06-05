@@ -243,7 +243,11 @@ class DemoTargetMover:
             (17.0, -0.90, 0.30),
         ]
         self._ball_radius: float = 0.13
-        self._avoid_margin: float = 0.35
+        # Small avoid margin: the ball (a point) cuts CLOSE to obstacles and
+        # threads gaps the wide robot cannot, so the robot must do its OWN
+        # avoidance (detour around obstacles) instead of just trailing an
+        # already-clear path.  Env-tunable via BALL_AVOID_MARGIN.
+        self._avoid_margin: float = float(os.environ.get("BALL_AVOID_MARGIN", "0.12"))
         self._lookahead: float = 2.5
         self._lateral_speed: float = 0.30
         self._corridor_y_target: float = 0.0
@@ -1485,6 +1489,39 @@ def _passage_positions(row_lane_center: float, h_w: float, h_n: float,
     return wide_y, narrow_y
 
 
+def _difficulty01(x: float) -> float:
+    """Difficulty as a function of distance travelled down the corridor: 0 at
+    the start, rising and saturating near the end of the ramp.  Drives wider
+    obstacles, a narrower robot lane and darker colour the further we go, so an
+    endless corridor keeps getting harder.  Ramp length / cap are env-tunable."""
+    ramp = float(os.environ.get("DIFFICULTY_RAMP_M", "240.0"))
+    cap  = float(os.environ.get("DIFFICULTY_CAP",    "1.6"))
+    return max(0.0, min(cap, (x - 4.0) / max(ramp, 1.0)))
+
+
+def _row_difficulty(model, gid_w: int, gid_n: int, x: float):
+    """Apply distance-based difficulty to one row's two obstacles (set their
+    lateral half-width + colour) and return ``(h_w, h_n, passage_width)``.
+    Used identically at startup and on recycle, so the corridor ramps in
+    difficulty with distance forever — obstacles WIDEN and DARKEN, the guaranteed
+    robot passage NARROWS (down to a still-passable floor)."""
+    d  = _difficulty01(x)
+    d1 = min(1.0, d)
+    h_w = min(0.95, 0.30 + d * 0.50)        # wide obstacle: 0.60 m → ~1.9 m wide
+    h_n = min(0.68, 0.22 + d * 0.30)        # narrow obstacle
+    passage = max(1.30, 1.90 - d * 0.60)    # robot lane: 1.9 m → 1.30 m floor
+    _orange = (0.92, 0.42, 0.20)
+    _black  = (0.10, 0.10, 0.10)
+    for gid, h in ((gid_w, h_w), (gid_n, h_n)):
+        if gid is None or gid < 0:
+            continue
+        model.geom_size[gid, 1] = h
+        model.geom_matid[gid] = -1
+        for j in range(3):
+            model.geom_rgba[gid, j] = _orange[j] * (1.0 - d1) + _black[j] * d1
+    return h_w, h_n, passage
+
+
 def main() -> None:
     model = mujoco.MjModel.from_xml_path(str(SCENE_XML))
     data  = mujoco.MjData(model)
@@ -1743,44 +1780,18 @@ def main() -> None:
             if xp is None:
                 continue
 
-            # ── Progressive difficulty: wider + darker as rows advance ──────
-            _row_t   = row_idx / max(n_rows - 1, 1)    # 0.0 (row 0) → 1.0 (last row)
-            _w_scale = 1.0 + _row_t * 1.0              # width: 1× → 2× by last row
-            _orange  = [0.92, 0.42, 0.20, 1.0]         # warm orange (early rows)
-            _black   = [0.07, 0.07, 0.07, 1.0]         # near-black  (late rows)
-            for _m in (wide_mid, narrow_mid):
-                _gid = obstacle_gid_by_mid.get(_m, -1)
-                if _gid < 0:
-                    continue
-                # Scale lateral half-width
-                _orig = float(model.geom_size[_gid, 1])
-                _new  = min(_orig * _w_scale, MAX_OBS_HALF * 2.0)
-                model.geom_size[_gid, 1] = _new
-                obstacle_y_half_by_mid[_m] = _new
-                # Lerp colour from orange → black.
-                # Must clear matid first: MuJoCo ignores geom_rgba when a
-                # material is assigned, using the material colour instead.
-                model.geom_matid[_gid] = -1
-                for _j in range(4):
-                    model.geom_rgba[_gid, _j] = (
-                        _orange[_j] * (1.0 - _row_t) + _black[_j] * _row_t
-                    )
-            # ────────────────────────────────────────────────────────────────
-
-            h_w = obstacle_y_half_by_mid[wide_mid]
-            h_n = obstacle_y_half_by_mid[narrow_mid]
+            # ── Distance-based difficulty: obstacles WIDEN + DARKEN and the
+            #    guaranteed robot lane NARROWS the further down the corridor we
+            #    are (continues forever via the recycler).  See _row_difficulty.
+            h_w, h_n, _passage = _row_difficulty(
+                model, obstacle_gid_by_mid.get(wide_mid, -1),
+                obstacle_gid_by_mid.get(narrow_mid, -1), float(xp))
+            obstacle_y_half_by_mid[wide_mid]   = h_w
+            obstacle_y_half_by_mid[narrow_mid] = h_n
             row_lane_center = _row_lane_center(row_idx, float(xp))
 
-            # Allowed y-range for each (just inside the wall).
-            y_w_max_abs = max(0.0, 2.30 - h_w)
-            y_n_max_abs = max(0.0, 2.30 - h_n)
-
-            # ── Passage-GUARANTEED placement ─────────────────────────────────
-            # Every row leaves one physically passable lane (≥ MIN_PASS wide);
-            # obstacle SIZES/COUNT/COLOUR are unchanged, only the lateral
-            # arrangement around a guaranteed gap.  See _passage_positions().
-            MIN_PASS = float(os.environ.get("MIN_PASSAGE", "1.45"))
-            wide_y, narrow_y = _passage_positions(row_lane_center, h_w, h_n, MIN_PASS)
+            # Passage-GUARANTEED placement around the (distance-scaled) gap.
+            wide_y, narrow_y = _passage_positions(row_lane_center, h_w, h_n, _passage)
 
             for mid, oy, oy_half in [
                 (wide_mid,   wide_y,   h_w),
@@ -2188,20 +2199,22 @@ def main() -> None:
                 _rear = min(corridor_rows, key=lambda r: r["x"])
                 if rx > _rear["x"] + 5.0:
                     _new_x  = max(r["x"] for r in corridor_rows) + _row_spacing
-                    _hw, _hn = _rear["h_w"], _rear["h_n"]
+                    # Recycled rows take the difficulty of their NEW (further)
+                    # position: wider, darker, narrower passage — endless ramp.
+                    _hw, _hn, _pass = _row_difficulty(
+                        model, _rear["gid_w"], _rear["gid_n"], _new_x)
+                    _rear["h_w"] = _hw; _rear["h_n"] = _hn
+                    obstacle_y_half_by_mid[_rear["wide_mid"]]   = _hw
+                    obstacle_y_half_by_mid[_rear["narrow_mid"]] = _hn
                     _wy, _ny = _passage_positions(
-                        _row_lane_center(99, _new_x), _hw, _hn,
-                        locals().get("MIN_PASS", 1.45))
+                        _row_lane_center(99, _new_x), _hw, _hn, _pass)
                     _rear["x"] = _new_x
-                    for _mid, _gid, _oy in (
-                        (_rear["wide_mid"],   _rear["gid_w"], _wy),
-                        (_rear["narrow_mid"], _rear["gid_n"], _ny),
+                    for _mid, _oy in (
+                        (_rear["wide_mid"],   _wy),
+                        (_rear["narrow_mid"], _ny),
                     ):
                         data.mocap_pos[_mid, 0] = _new_x
                         data.mocap_pos[_mid, 1] = _oy
-                        if _gid >= 0:
-                            model.geom_matid[_gid] = -1
-                            model.geom_rgba[_gid, 0:3] = 0.07
                     # Rebuild the static lists the brake + ball-mover consume.
                     obstacle_world_positions = [
                         (float(data.mocap_pos[m, 0]), float(data.mocap_pos[m, 1]),
