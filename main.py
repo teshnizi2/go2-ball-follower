@@ -1726,24 +1726,18 @@ def main() -> None:
                 free.append(2.5 - prev)
             return max(free) if free else 0.0
 
-        # Curving-corridor offset: shift each row's center laterally along a
-        # sine wave whose amplitude scales with the row's stage.  Builds a
-        # serpentine passage that bends harder as the run progresses.
+        # Serpentine passage centre.  We swing the gap WALL-TO-WALL (matching
+        # the ball's ±1.8 side lanes) from the very first row, so the CENTRE of
+        # the corridor is filled with obstacles and the robot must weave side to
+        # side to thread them — instead of cruising down an always-clear middle
+        # with the obstacles parked uselessly against the walls.  Two
+        # incommensurate sines keep it from looking mechanically periodic.
         _CURVE_X0 = float(os.environ.get("OBS_MIN_X", "4.0"))
+        _WEAVE_AMP = float(os.environ.get("CORRIDOR_WEAVE", "1.7"))
         def _row_lane_center(row_idx: int, xp: float) -> float:
-            row_stage = 1 + row_idx // 3
-            # Two-tier curve fitting inside the 5 m corridor (walls at ±2.58):
-            #  - high-freq S-curve (snake-like wobble)
-            #  - low-freq path swing (gentle turn left/right over many rows)
-            amp = 0.0      # high-freq amplitude
-            rot_amp = 0.0  # low-freq path-rotation amplitude
-            if row_stage >= 3:  amp = 0.4
-            if row_stage >= 6:  amp = 0.6; rot_amp = 0.5
-            if row_stage >= 9:  amp = 0.8; rot_amp = 0.7
-            if row_stage >= 12: amp = 1.0; rot_amp = 0.8
-            if row_stage >= 15: amp = 1.1; rot_amp = 1.0
             ds = (xp - _CURVE_X0)
-            return amp * math.sin(0.18 * ds) + rot_amp * math.sin(0.04 * ds)
+            return _WEAVE_AMP * (0.85 * math.sin(0.12 * ds)
+                                 + 0.15 * math.sin(0.29 * ds + 1.3))
 
         for row_idx, (xp, (wide_mid, narrow_mid)) in enumerate(zip(xs, pairs)):
             if xp is None:
