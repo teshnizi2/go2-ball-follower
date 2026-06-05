@@ -249,7 +249,8 @@ class DemoTargetMover:
         # already-clear path.  Env-tunable via BALL_AVOID_MARGIN.
         self._avoid_margin: float = float(os.environ.get("BALL_AVOID_MARGIN", "0.12"))
         self._lookahead: float = 2.5
-        self._lateral_speed: float = 0.30
+        # Faster lateral so the ball's corridor crossings are demanding to chase.
+        self._lateral_speed: float = float(os.environ.get("BALL_LATERAL_SPEED", "0.45"))
         self._corridor_y_target: float = 0.0
 
         self._x, self._y = self._corners[self._corner_idx]
@@ -352,43 +353,54 @@ class DemoTargetMover:
         self._param_t += dt
 
         clearance = self._ball_radius + self._avoid_margin
-        current_lane_y = self._lanes[self._current_lane_idx]
 
-        # Function: is `lane_y` blocked by ANY obstacle within look-ahead?
-        # Each obstacle has its own y_half (lateral half-width).
-        def lane_blocked(lane_y: float) -> bool:
-            for entry in self._obstacles:
-                ox, oy = entry[0], entry[1]
-                oy_half = entry[2] if len(entry) > 2 else 0.30
-                if 0.0 < (ox - self._x) < self._lookahead:
-                    if abs(lane_y - oy) < oy_half + clearance:
-                        return True
-            return False
+        # Thread the ball through the GAPS BETWEEN obstacles — not parked in a
+        # safe open lane.  Build the free y-gaps among the obstacles just ahead
+        # and aim at a gap centre: usually the nearest one (a smooth snake
+        # between obstacles), but on a dwell tick JUMP to a far gap so the ball
+        # crosses the corridor and the robot is forced into a hard traverse /
+        # detour after it.  Because the ball is a point with a small clearance,
+        # it threads gaps too narrow for the wide robot, so the robot must do
+        # its own avoidance to follow.
+        look = self._lookahead
+        blocked = []
+        for entry in self._obstacles:
+            ox, oy = entry[0], entry[1]
+            oy_half = entry[2] if len(entry) > 2 else 0.30
+            if 0.0 < (ox - self._x) < look:
+                blocked.append((oy - oy_half - clearance, oy + oy_half + clearance))
+        WALL = 2.4
+        blocked.sort()
+        gaps = []
+        prev = -WALL
+        for lo, hi in blocked:
+            if lo > prev:
+                gaps.append((prev, lo))
+            prev = max(prev, hi)
+        if WALL > prev:
+            gaps.append((prev, WALL))
+        gaps = [g for g in gaps if (g[1] - g[0]) > 0.30]   # threadable by a point
 
-        # Decide whether to switch lane this step.
+        def _gc(g):
+            return 0.5 * (g[0] + g[1])
+        def _dist_to_gap(g):
+            return 0.0 if g[0] <= self._y <= g[1] else min(abs(g[0] - self._y),
+                                                           abs(g[1] - self._y))
+
         self._lane_dwell_t += dt
-        force_switch = lane_blocked(current_lane_y)
-        time_switch  = (self._lane_dwell_t >= self._lane_dwell_s)
-
-        if force_switch or time_switch:
-            # Build candidate list: lanes NOT blocked by upcoming obstacles.
-            free_lanes = [i for i in range(len(self._lanes))
-                           if not lane_blocked(self._lanes[i])]
-            # Prefer a NEW lane if possible.
-            other_free = [i for i in free_lanes if i != self._current_lane_idx]
-            if force_switch and other_free:
-                self._current_lane_idx = _random.choice(other_free)
-            elif force_switch and free_lanes:
-                # All blocked except current — stay put (shouldn't happen
-                # if we have ≥2 clear lanes always).
-                self._current_lane_idx = free_lanes[0]
-            elif time_switch and other_free:
-                # Random lane swap for variety.
-                self._current_lane_idx = _random.choice(other_free)
-            self._lane_dwell_t = 0.0
-
-        target_y = self._lanes[self._current_lane_idx]
+        if gaps:
+            target_gap = min(gaps, key=_dist_to_gap)         # nearest gap (snake)
+            if self._lane_dwell_t >= self._lane_dwell_s and len(gaps) > 1:
+                self._lane_dwell_t = 0.0
+                # Cross the corridor: pick the gap whose centre is FARTHEST from
+                # the ball — drags the robot through a hard lateral traverse.
+                target_gap = max(gaps, key=lambda g: abs(_gc(g) - self._y))
+            target_y = max(target_gap[0] + 0.05, min(target_gap[1] - 0.05, _gc(target_gap)))
+        else:
+            target_y = self._y
         self._corridor_y_target = target_y
+        # Approximate lane label for the HUD from the chosen gap centre.
+        self._current_lane_idx = 0 if target_y < -0.6 else (2 if target_y > 0.6 else 1)
 
         # ── Leash logic ──────────────────────────────────────────────────
         # Ball must always stay AHEAD of the robot.  When the lead gap
@@ -1496,7 +1508,8 @@ def _difficulty01(x: float) -> float:
     endless corridor keeps getting harder.  Ramp length / cap are env-tunable."""
     ramp = float(os.environ.get("DIFFICULTY_RAMP_M", "240.0"))
     cap  = float(os.environ.get("DIFFICULTY_CAP",    "1.6"))
-    return max(0.0, min(cap, (x - 4.0) / max(ramp, 1.0)))
+    base = float(os.environ.get("DIFFICULTY_BASE",   "0.55"))   # already hard at the start
+    return max(0.0, min(cap, base + (x - 4.0) / max(ramp, 1.0)))
 
 
 def _row_difficulty(model, gid_w: int, gid_n: int, x: float):
