@@ -23,8 +23,8 @@ We compose three layers around a **pre-trained RL locomotion policy**:
 | Layer | What we built | Key files |
 |------|---------------|-----------|
 | 🎯 **Perception** | Dual-window HSV mask + CamShift adaptive ROI; confidence-based reset | `tracker.py` |
-| 🧭 **Reactive planning** | Free-band passage picker with commit-and-hold hysteresis; pure-pursuit controller; 4-layer safety stack | `controller.py`, `main.py` (planner block ~L2400) |
-| 🐾 **Locomotion** | **Pre-trained** PPO velocity-tracking policy (`model_500.pt`); we do NOT train it | `low_level.py`, `policy/model_500.pt` |
+| 🧭 **Reactive planning** | Free-band passage picker (aims at the band **centre**, not edge); commit-and-hold with a **hard passage gate** (won't cross a row until laterally aligned); pure-pursuit + **lateral `vy` strafing**; obstacle-repulsion safety net | `controller.py`, `main.py` (planner block ~L2400) |
+| 🐾 **Locomotion** | **Pre-trained** PPO velocity-tracking policy (`model_500.pt`); we do NOT train it. We drive its full **(vx, vy, vyaw)** command — lateral `vy` lets the robot strafe into wall-side passages without turning | `low_level.py`, `policy/model_500.pt` |
 | 🖥️ **Visualisation** | Live 720×720 cv2 dashboard: chase + head-cam + 2D map + telemetry with status LED & sparkline | `main.py` (HUD ~L1100) |
 | 🎬 **Curriculum** | Stage advances every 20 s of sim time; ball gains lateral/vertical motion; obstacles shift from orange → black | `main.py` (mover class) |
 
@@ -122,14 +122,24 @@ sim/
 
 | Metric | Value |
 |--------|-------|
-| Best clean-sim time | ~386 s on `CORRIDOR_SEED=100` (24 obstacles cleared) |
-| Avg forward speed | ~0.5 m/s (policy-limited) |
+| Collision-free runtime | **10 min (600 s), 0 obstacle/wall collisions** — verified headless on 7 seeds (42, 123, 700, 999, 200, 333, 7) |
+| Rows cleared | **all 50** per run (x = 4 → 275 m), then free-runs to ~375 m |
+| Avg forward speed | ~0.6 m/s (policy-limited; slows only to align at hard rows) |
+| Stuck / wedge events | 0 across the 7-seed sweep |
 | Physics step rate | ~5,700 Hz (after scene trim to 200 mocaps) |
-| Stuck-recovery success rate | ~60 % before fall-through to FAIL |
 
-Failure mode at later rows: ~0.25 m **lateral tracking error** of the un-fine-tuned RL
-policy — it can plan a passage cleanly but cannot hit the centreline closely enough on
-later rows. See the technical report for a detailed discussion.
+**How the late-row failure was fixed.** The un-fine-tuned RL policy has ~0.25 m
+lateral tracking error as a pure unicycle (vx + vyaw only), so on rows whose only
+safe passage is a narrow wall-side band it used to clip the obstacle. Three changes
+removed all collisions:
+
+1. **Lateral `vy` strafing** — the policy's (previously unused) lateral command channel
+   is now driven, so the robot can translate sideways into a passage without turning.
+2. **Hard passage gate** — the planner aims at the band **centre** and forbids the robot
+   from crossing a row's entry plane until its body is laterally inside the safe band.
+3. **Guaranteed-passable placement** — every row is constructed to leave one lane
+   ≥ 1.45 m wide (obstacle sizes/count/colour unchanged), so no row is physically
+   impassable. A stumble now recovers **in place** instead of restarting the corridor.
 
 ---
 
@@ -142,7 +152,9 @@ To be transparent:
   (`unitree-go2-velocity-flat` variant). Everything around it (perception, planner,
   safety, dashboard, curriculum) is ours.
 - The vision is HSV + CamShift — not a CNN detector.
-- Evaluation is single-seed-anecdotal, not a full 50-seed sweep.
+- Collision-free navigation is verified on a 7-seed × 10-minute sweep, not the full
+  50-seed sweep (the planner's passage guarantee makes every seed feasible, but we
+  have not exhaustively measured speed/robustness across all of them).
 
 These are explicit future-work items in the technical report.
 

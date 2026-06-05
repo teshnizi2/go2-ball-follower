@@ -88,6 +88,7 @@ class LowLevelBase(ABC):
         ramp_start_time: float,
         sim_time: float,
         sim_dt: float,
+        vy_cmd: float = 0.0,
     ) -> None:
         ...
 
@@ -114,6 +115,7 @@ class TrotPDGait(LowLevelBase):
         ramp_start_time: float,
         sim_time: float,
         sim_dt: float,
+        vy_cmd: float = 0.0,
     ) -> None:
         del model
         ramp = float(np.clip((sim_time - ramp_start_time) / self.ramp_dur, 0.0, 1.0))
@@ -151,6 +153,7 @@ class RawTorqueLowLevel(LowLevelBase):
         ramp_start_time: float,
         sim_time: float,
         sim_dt: float,
+        vy_cmd: float = 0.0,
     ) -> None:
         del model, vx_cmd, vyaw_cmd, ramp_start_time, sim_time, sim_dt
         data.ctrl[:] = np.clip(self._tau, self._lo, self._hi)
@@ -233,6 +236,15 @@ _VX_OBS_SCALE = 2.5   # raised from 1.8: at 1.8 vx=0.8 gave only ~3.4σ → ~0.0
 # Scaling by 2.0 raises the normalised cmd to ~4.6σ (effective ~0.65 rad/s) while
 # keeping the HIGH-LEVEL command capped at 1.2 (proportional, not sustained).
 _VYAW_OBS_SCALE = 2.0   # scale applied to vyaw before inserting into obs
+
+# Lateral velocity command (strafe).  The RSL-RL Go2 velocity policy was trained
+# with an omnidirectional command including vy (norm std ≈ 0.281), but main.py
+# historically fed vy=0.  Enabling it gives the planner a way to make the robot
+# translate sideways WITHOUT turning — essential for threading narrow passages
+# whose only safe band is on the opposite side of the corridor from the ball.
+# Scaled like vx so a moderate command produces meaningful motion in MuJoCo.
+_CMD_VY_MAX   = 1.5   # m/s clip before obs (effective lateral speed ~0.25-0.4 m/s)
+_VY_OBS_SCALE = 2.5   # mirror _VX_OBS_SCALE so vy has comparable authority
 
 
 def _quat_to_rotmat(q: np.ndarray) -> np.ndarray:
@@ -351,6 +363,7 @@ class RLVelocityLowLevel(LowLevelBase):
         ramp_start_time: float,
         sim_time: float,
         sim_dt: float,
+        vy_cmd: float = 0.0,
     ) -> None:
         if not self._loaded:
             assert self._fallback is not None
@@ -358,6 +371,8 @@ class RLVelocityLowLevel(LowLevelBase):
                 model, data, vx_cmd, vyaw_cmd, ramp_start_time, sim_time, sim_dt
             )
             return
+
+        # Hold the latest lateral command between policy ticks (set below).
 
         self._substep_ctr += 1
         joint_pos = data.qpos[JSTART:JSTART + 12].astype(np.float32)
@@ -367,6 +382,7 @@ class RLVelocityLowLevel(LowLevelBase):
         if self._substep_ctr % _POLICY_DECIMATE == 1:
             # Clamp commands to training distribution range
             vx   = float(np.clip(vx_cmd,   -_CMD_VX_MAX,   _CMD_VX_MAX))
+            vy   = float(np.clip(vy_cmd,   -_CMD_VY_MAX,   _CMD_VY_MAX))
             vyaw = float(np.clip(vyaw_cmd, -_CMD_VYAW_MAX, _CMD_VYAW_MAX))
 
             quat        = data.qpos[3:7]
@@ -381,7 +397,7 @@ class RLVelocityLowLevel(LowLevelBase):
             obs = np.concatenate([
                 omega_body,
                 g_body,
-                np.array([vx * _VX_OBS_SCALE, 0.0, vyaw * _VYAW_OBS_SCALE], dtype=np.float32),
+                np.array([vx * _VX_OBS_SCALE, vy * _VY_OBS_SCALE, vyaw * _VYAW_OBS_SCALE], dtype=np.float32),
                 joint_pos - _RL_DEFAULT_POS,
                 joint_vel,
                 self._last_action,

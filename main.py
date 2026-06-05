@@ -1416,8 +1416,18 @@ def _reset(
     robot_trail: collections.deque,
     ball_trail: collections.deque,
     mover: DemoTargetMover,
+    keep_x: float | None = None,
+    keep_y: float | None = None,
 ) -> None:
     mujoco.mj_resetDataKeyframe(model, data, 0)
+    # Recover IN PLACE after a fall: pop upright where the robot fell instead
+    # of teleporting back to the corridor start (a single stumble shouldn't
+    # cost all forward progress).  The keyframe restores the upright pose and
+    # zeroes velocities; we only override the planar (x, y) position.
+    if keep_x is not None:
+        data.qpos[0] = keep_x
+        data.qpos[1] = keep_y if keep_y is not None else float(data.qpos[1])
+        data.qvel[:] = 0.0
     mujoco.mj_forward(model, data)
     gait.reset_phase(0.0)
     ramp_start[0] = data.time
@@ -1425,8 +1435,9 @@ def _reset(
     controller.reset()
     robot_trail.clear()
     ball_trail.clear()
-    mover.reset()
-    print("Reset.")
+    if keep_x is None:
+        mover.reset()              # full reset (R key): ball returns to start
+    print("Reset (in place)." if keep_x is not None else "Reset.")
 
 
 def main() -> None:
@@ -1723,46 +1734,59 @@ def main() -> None:
             y_w_max_abs = max(0.0, 2.30 - h_w)
             y_n_max_abs = max(0.0, 2.30 - h_n)
 
-            # Try random placements until both feasibility constraints met:
-            #   1. Obstacle edges separated by ≥ MIN_EDGE_GAP (0.40 m)
-            #      so the pair looks like two distinct objects.
-            #   2. At least one free band ≥ ROBOT_BODY (0.65 m) so the
-            #      robot can pass.
-            MIN_EDGE_GAP   = 0.40
-            ROBOT_BODY     = 0.65   # body+small buffer
-            PLACE_SAFETY   = 0.45   # mirror of ROBOT_SAFETY in avoidance
-            wide_y = narrow_y = 0.0
-            placed = False
-            for _ in range(60):
-                wide_y = random.uniform(-y_w_max_abs, y_w_max_abs)
-                narrow_y = random.uniform(-y_n_max_abs, y_n_max_abs)
-                # Edge separation: distance between centers minus their half-widths
-                edge_gap = abs(wide_y - narrow_y) - (h_w + h_n)
-                if edge_gap < MIN_EDGE_GAP:
-                    continue
-                # Feasibility: largest free band (with safety) ≥ robot body
-                blocked = [
-                    (wide_y   - h_w - PLACE_SAFETY, wide_y   + h_w + PLACE_SAFETY),
-                    (narrow_y - h_n - PLACE_SAFETY, narrow_y + h_n + PLACE_SAFETY),
-                ]
-                if _largest_free_band(blocked) >= ROBOT_BODY:
-                    placed = True
-                    break
-            if not placed:
-                # Fallback: same-side guaranteed-clear-opposite layout.
-                sign = +1 if (row_idx % 2 == 0) else -1
-                wide_y   = sign * max(h_w + 0.10, 2.30 - h_w)
-                narrow_y = sign * max(h_n + 0.20, 0.30)
+            # ── Passage-GUARANTEED placement ─────────────────────────────────
+            # Every row MUST leave one physically passable lane (≥ MIN_PASS wide)
+            # for the robot.  Otherwise two wide late-row obstacles can split the
+            # corridor into impassable slivers (a 4 cm gap) and the robot wedges
+            # forever — no planner can fit a 0.68 m body through that.  We keep
+            # obstacle SIZES, COUNT and COLOUR exactly as scaled above; only the
+            # lateral ARRANGEMENT is built around a guaranteed gap that follows
+            # the serpentine lane centre for visual variety.
+            MIN_EDGE_GAP = 0.40
+            CORR_OBS  = 2.50                      # obstacle extents stay within ±this
+            MIN_PASS  = float(os.environ.get("MIN_PASSAGE", "1.45"))
+            HALF_PASS = 0.5 * MIN_PASS
+            _ypc_lim  = CORR_OBS - HALF_PASS
+            y_pass    = max(-_ypc_lim, min(_ypc_lim, row_lane_center))   # passage centre
+            below_hi  = y_pass - HALF_PASS       # top edge of lower side-region
+            above_lo  = y_pass + HALF_PASS       # bottom edge of upper side-region
+            w_below   = below_hi + CORR_OBS      # room below the passage
+            w_above   = CORR_OBS - above_lo      # room above the passage
+
+            def _place_in(rlo, rhi, h):
+                # Centre an obstacle of half-width h inside [rlo, rhi], with a
+                # little jitter when there is slack.
+                c = 0.5 * (rlo + rhi)
+                _slack = 0.5 * (rhi - rlo - 2 * h)
+                if _slack > 0.05:
+                    c += random.uniform(-1.0, 1.0) * _slack
+                return max(rlo + h, min(rhi - h, c))
+
+            # Prefer one obstacle on each side of the passage; otherwise stack
+            # both on the roomier side (passage hugs the other wall).
+            if w_below >= 2 * h_w and w_above >= 2 * h_n and random.random() < 0.5:
+                wide_y   = _place_in(-CORR_OBS, below_hi, h_w)
+                narrow_y = _place_in(above_lo,  CORR_OBS, h_n)
+            elif w_above >= 2 * h_w and w_below >= 2 * h_n:
+                wide_y   = _place_in(above_lo,  CORR_OBS, h_w)
+                narrow_y = _place_in(-CORR_OBS, below_hi, h_n)
+            elif w_below >= 2 * h_w and w_above >= 2 * h_n:
+                wide_y   = _place_in(-CORR_OBS, below_hi, h_w)
+                narrow_y = _place_in(above_lo,  CORR_OBS, h_n)
+            elif w_below >= w_above:
+                wide_y   = -CORR_OBS + h_w
+                narrow_y = min(below_hi - h_n, -CORR_OBS + 2 * h_w + MIN_EDGE_GAP + h_n)
+            else:
+                wide_y   = CORR_OBS - h_w
+                narrow_y = max(above_lo + h_n, CORR_OBS - 2 * h_w - MIN_EDGE_GAP - h_n)
 
             for mid, oy, oy_half in [
                 (wide_mid,   wide_y,   h_w),
                 (narrow_mid, narrow_y, h_n),
             ]:
-                # Shift the obstacle by the row's lane-center, then clamp so
-                # the obstacle still fits inside the corridor (walls at y = ±2.58).
-                shifted_y = oy + row_lane_center
-                _wall_lim = 2.30 - oy_half
-                shifted_y = max(-_wall_lim, min(_wall_lim, shifted_y))
+                # Final clamp so the obstacle's extent stays inside the corridor.
+                _wall_lim = CORR_OBS - oy_half + 0.30   # allow centre near wall, extent ≤2.58
+                shifted_y = max(-_wall_lim, min(_wall_lim, oy))
                 is_tall = obstacle_is_tall_by_mid[mid]
                 data.mocap_pos[mid, 0] = float(xp)
                 data.mocap_pos[mid, 1] = shifted_y
@@ -1782,10 +1806,24 @@ def main() -> None:
         mover.set_corridor_obstacles(obstacle_world_positions)
         n_placed = len(all_robot_obstacles)
         widths   = [yh * 2 for _, _, yh in obstacle_world_positions]
+        # Verify the passage guarantee: smallest physical free gap over all rows.
+        _by_x: dict[float, list] = {}
+        for (_ox, _oy, _oh) in obstacle_world_positions:
+            _by_x.setdefault(round(_ox, 1), []).append((_oy, _oh))
+        _min_gap = 9.9
+        for _rx, _obs in _by_x.items():
+            _bl = sorted((oy - oh, oy + oh) for oy, oh in _obs)
+            _free = []; _prev = -2.58
+            for _lo, _hi in _bl:
+                if _lo > _prev: _free.append(_lo - _prev)
+                _prev = max(_prev, _hi)
+            if 2.58 > _prev: _free.append(2.58 - _prev)
+            _min_gap = min(_min_gap, max(_free) if _free else 0.0)
         print(f"[CORRIDOR] placed {n_placed} obstacles in "
               f"{n_placed // 2} rows of 2  "
               f"widths: min={min(widths):.2f}m max={max(widths):.2f}m "
-              f"mean={sum(widths)/len(widths):.2f}m",
+              f"mean={sum(widths)/len(widths):.2f}m  "
+              f"min_passage={_min_gap:.2f}m",
               flush=True)
     else:
         all_robot_obstacles = []
@@ -1798,6 +1836,7 @@ def main() -> None:
     RAMP_DUR    = 1.0                  # seconds for standup ramp (see TrotPDGait.ramp_dur)
 
     vx_cmd = vyaw_cmd = 0.0
+    vy_cmd = 0.0   # lateral strafe command (body frame); set by corridor planner
     # ── EMA smoothing for velocity commands ───────────────────────────────────
     # Smoothing reduces rapid oscillations (e.g. vx toggling ±) that confuse the
     # RL gait and cause falls.  Alpha=1 → no smoothing; lower → heavier filter.
@@ -1974,7 +2013,7 @@ def main() -> None:
                     if "_last_stuck_rx" in locals():
                         if (_now_rx - _last_stuck_rx) > 2.0:
                             stuck_event_count = 0
-                if _dt >= 3.0 and _max_d < 0.5:
+                if _dt >= 3.0 and _max_d < 0.5 and not locals().get("_gate_suppress_stuck", False):
                     # Persistent stuck — escalating recovery ladder:
                     #   #1: spin left           #2: spin right
                     #   #3: BACK UP 1.5 s       #4: FAIL
@@ -2018,6 +2057,17 @@ def main() -> None:
 
             vx_g     = 0.0 if incapped else (vx_cmd * ROBOT_SPEED_SCALE)
             vyaw_g   = 0.0 if incapped else (vyaw_cmd * tilt_scale)
+            vy_g     = 0.0 if incapped else vy_cmd
+            # Stability probe: VY_PROBE=<m/s> commands a constant body-frame
+            # strafe so we can verify the policy stays upright while moving
+            # sideways before wiring lateral control into the planner.
+            _vy_probe = os.environ.get("VY_PROBE", "")
+            if _vy_probe:
+                vy_g = float(_vy_probe)
+                # Pure-strafe isolation: small forward nudge, no yaw, so the
+                # measured ry slope reflects lateral speed alone.
+                vx_g = float(os.environ.get("VY_PROBE_VX", "0.15"))
+                vyaw_g = 0.0
             _ = tilt_scale  # keep referenced
             # Adaptive speed: tie joint-target amplitude to vx_cmd so the
             # gait throttles down when the controller chooses to slow
@@ -2030,6 +2080,7 @@ def main() -> None:
                 gait.substep(
                     model, data, vx_g, vyaw_g,
                     ramp_start[0], float(data.time), SIM_DT,
+                    vy_g,
                 )
                 mujoco.mj_step(model, data)
             step_num += 1
@@ -2041,6 +2092,7 @@ def main() -> None:
                 collision_count = 0
                 collision_failed = False
                 collision_stage_at_fail = 0
+            _hit_gid_obs = -1
             for _ci in range(data.ncon):
                 c = data.contact[_ci]
                 g1, g2 = int(c.geom1), int(c.geom2)
@@ -2048,6 +2100,8 @@ def main() -> None:
                 _hit_wall     = (g1 in wall_geom_ids)     or (g2 in wall_geom_ids)
                 if _hit_obstacle or _hit_wall:
                     collision_count += 1
+                    if _hit_obstacle:
+                        _hit_gid_obs = g1 if g1 in obstacle_geom_ids else g2
                     if not collision_failed:
                         collision_failed = True
                         collision_stage_at_fail = getattr(mover, "_stage", 1)
@@ -2063,6 +2117,42 @@ def main() -> None:
                         if os.environ.get("COLLISION_STOPS_SIM", "1") == "1":
                             _collision_stop_at = step_num + 60
                     break
+
+            # ── COLLIDE_DEBUG: rich per-contact diagnostics (env-gated) ──────
+            # Ties each obstacle contact to the planner state that produced it:
+            # committed band, aim point, cross-track error, lateral penetration.
+            # Throttled to once per ~0.4 s per obstacle geom so a sustained
+            # contact doesn't spam.  This is the evidence used to find the
+            # root cause of collisions — set COLLIDE_DEBUG=1 to enable.
+            if os.environ.get("COLLIDE_DEBUG", "0") == "1" and _hit_gid_obs >= 0:
+                if "_collide_dbg_last" not in locals():
+                    _collide_dbg_last = {}
+                _last_t = _collide_dbg_last.get(_hit_gid_obs, -1e9)
+                if sim_time - _last_t > 0.40:
+                    _collide_dbg_last[_hit_gid_obs] = sim_time
+                    _crx = float(data.qpos[0]); _cry = float(data.qpos[1])
+                    _ogx = float(data.geom_xpos[_hit_gid_obs, 0])
+                    _ogy = float(data.geom_xpos[_hit_gid_obs, 1])
+                    _ohw = float(model.geom_size[_hit_gid_obs, 1])   # lateral half-width
+                    # Lateral penetration of robot CENTER past the near obstacle edge.
+                    _near_edge = _ogy + _ohw if _cry > _ogy else _ogy - _ohw
+                    _pen = (_ohw - abs(_cry - _ogy))   # >0 ⇒ robot center inside obstacle y-span
+                    _bl = locals().get("detour_band_lo", float("nan"))
+                    _bh = locals().get("detour_band_hi", float("nan"))
+                    _asy = locals().get("detour_side_y", float("nan"))
+                    _dox = locals().get("detour_obs_x", -1e9)
+                    _xtrk = (_cry - _asy) if _asy == _asy else float("nan")
+                    _committed = "Y" if (_dox is not None and _dox > 0) else "N"
+                    print(
+                        f"[COLLIDE-DBG] t={sim_time:6.2f}s gid={_hit_gid_obs} "
+                        f"robot=({_crx:+.2f},{_cry:+.2f}) yaw={locals().get('yaw',0.0):+.2f} "
+                        f"obs=(x{_ogx:+.2f},y{_ogy:+.2f},hw{_ohw:.2f}) "
+                        f"pen={_pen:+.3f}m commit={_committed} "
+                        f"band=[{_bl:+.2f},{_bh:+.2f}] aim={_asy:+.2f} "
+                        f"xtrk={_xtrk:+.3f}m vx={vx_cmd:+.2f} vyaw={vyaw_cmd:+.2f} "
+                        f"vy={locals().get('vy_cmd', 0.0):+.2f}",
+                        flush=True,
+                    )
             # Apply the delayed stop (lets the red overlay render a few frames).
             if collision_failed and step_num >= locals().get("_collision_stop_at", 10**18):
                 print("[COLLISION] terminating after fail tail", flush=True)
@@ -2109,8 +2199,13 @@ def main() -> None:
                         flush=True,
                     )
                 elif sim_time - fell_at >= FALL_RESET_S:
+                    # Recover in place (keep x,y) so a stumble doesn't restart
+                    # the whole corridor.  Back off ~0.4 m so the robot pops up
+                    # just BEFORE wherever it tipped, never inside an obstacle.
                     _reset(model, data, ramp_start, gait,
-                           tracker, controller, robot_trail, ball_trail, mover)
+                           tracker, controller, robot_trail, ball_trail, mover,
+                           keep_x=float(data.qpos[0]) - 0.40,
+                           keep_y=float(data.qpos[1]))
                     fell_at = None
                     continue
             else:
@@ -2395,7 +2490,11 @@ def main() -> None:
                 # at ~25 cm clearance instead of 45 cm. Configurable via env.
                 ROBOT_SAFETY  = float(os.environ.get("ROBOT_SAFETY",  "0.25"))
                 DETOUR_MARGIN = float(os.environ.get("DETOUR_MARGIN", "0.15"))
-                LOOKAHEAD_X = float(os.environ.get("DETOUR_LOOKAHEAD", "3.5"))
+                # Long lookahead so the robot COMMITS to a row's passage early
+                # and starts the (possibly large) lateral move with enough
+                # forward runway.  The old 3.5 m committed only ~2 s before the
+                # row — far too late for a unicycle to cross the corridor.
+                LOOKAHEAD_X = float(os.environ.get("DETOUR_LOOKAHEAD", "8.0"))
                 corridor_half_w = 2.5   # 5 m wide corridor
 
                 # Stuck-detection: if x-position hasn't advanced ≥0.05 m over
@@ -2449,7 +2548,8 @@ def main() -> None:
                     rng_2d = (rng_x * rng_x + rng_y * rng_y) ** 0.5
                     if rng_2d < 0.15:
                         tier2 = True
-                if (tier1 or tier2) and step_num > stuck_until + 150:
+                if (tier1 or tier2) and step_num > stuck_until + 150 \
+                        and not locals().get("_gate_suppress_stuck", False):
                     stuck_flip = not stuck_flip
                     stuck_until = step_num + 100   # commit detour side ~2 s
                     stuck_recovery_until = step_num + 75   # 1.5 s reverse
@@ -2503,15 +2603,26 @@ def main() -> None:
                 if "detour_obs_x" not in locals():
                     detour_obs_x = -1e9
                     detour_side_y = 0.0
-                # Clear commitment when robot has cleared the row.
-                if rx > detour_obs_x + OBS_X_HALF + 0.30:
+                # Clear commitment only when the robot is fully PAST the row
+                # AND laterally inside the committed band.  Releasing while the
+                # body is still beside the obstacle let ball-pull yank it back
+                # into the obstacle (observed graze).  A forced release well
+                # past the row prevents deadlock if it never fully aligned.
+                _rel_lo = locals().get("detour_band_lo", -2.5)
+                _rel_hi = locals().get("detour_band_hi",  2.5)
+                _past_x   = rx > detour_obs_x + OBS_X_HALF + 0.45
+                _lat_clear = (_rel_lo - 0.05) <= ry <= (_rel_hi + 0.05)
+                _far_past = rx > detour_obs_x + OBS_X_HALF + 1.30
+                if (_past_x and _lat_clear) or _far_past:
                     detour_obs_x = -1e9
                 # ALSO release commitment if the ball has moved so that
                 # the straight-line robot→ball path no longer crosses
                 # any obstacle in the committed row.  Without this, the
                 # robot keeps detouring through the chosen passage even
-                # after the ball moved to a clear lane.
-                if detour_obs_x > 0 and abs(bx - rx) > 0.01:
+                # after the ball moved to a clear lane.  Only re-evaluate while
+                # the row is still well AHEAD (>2 m): once close, the gate owns
+                # the maneuver and releasing/re-picking mid-passage is unsafe.
+                if detour_obs_x > 0 and abs(bx - rx) > 0.01 and (detour_obs_x - rx) > 2.0:
                     _path_blocked = False
                     _committed_row_obs = []
                     for (_ox, _oy, _oh) in ahead_obstacles:
@@ -2659,11 +2770,23 @@ def main() -> None:
                                     width_penalty = max(0.0, _BODY_W - width) * 5.0
                                     return d1 + d2 - 0.05 * width + width_penalty
                                 best = min(free_bands, key=_total_len)
-                            # Aim through the band at the point closest to
-                                # the straight robot→ball line (shortest path).
-                                _by_in = max(best[0], min(best[1], by))
-                                _ry_in = max(best[0], min(best[1], ry))
-                                target_band_y = 0.5 * (_by_in + _ry_in)
+                            # Aim at the SAFE INTERIOR of the band — never the
+                                # edge (band edges abut the obstacle's safety
+                                # halo).  Follow the ball-y only if the ball
+                                # actually passes THROUGH this band; otherwise
+                                # centre the robot in the gap so the follower's
+                                # lateral tracking error cannot push the body
+                                # into an obstacle.  This is the fix for the
+                                # "aim=band-edge → graze obstacle" collisions.
+                                _keep = float(os.environ.get("BAND_EDGE_KEEP", "0.18"))
+                                _cen  = 0.5 * (best[0] + best[1])
+                                if (best[1] - best[0]) <= 2 * _keep:
+                                    target_band_y = _cen
+                                elif best[0] <= by <= best[1]:
+                                    target_band_y = max(best[0] + _keep,
+                                                        min(best[1] - _keep, by))
+                                else:
+                                    target_band_y = _cen
                             # Commit — store the band range so the aim-point
                             # can be RE-CENTERED each step on the current
                             # robot↔ball line (so a moving ball doesn't keep
@@ -2686,9 +2809,15 @@ def main() -> None:
                 # target — picks the point closest to the current straight
                 # robot↔ball line that's still inside the band.
                 if detour_obs_x > 0 and "detour_band_lo" in locals():
-                    _by_in = max(detour_band_lo, min(detour_band_hi, by))
-                    _ry_in = max(detour_band_lo, min(detour_band_hi, ry))
-                    detour_side_y = 0.5 * (_by_in + _ry_in)
+                    _keep = float(os.environ.get("BAND_EDGE_KEEP", "0.18"))
+                    _cen  = 0.5 * (detour_band_lo + detour_band_hi)
+                    if (detour_band_hi - detour_band_lo) <= 2 * _keep:
+                        detour_side_y = _cen
+                    elif detour_band_lo <= by <= detour_band_hi:
+                        detour_side_y = max(detour_band_lo + _keep,
+                                            min(detour_band_hi - _keep, by))
+                    else:
+                        detour_side_y = _cen
                 # Reset each step so blue doesn't show stale plan when
                 # the planner is no longer in a detour.
                 shared_path_pts = []
@@ -2882,6 +3011,93 @@ def main() -> None:
             # after smoothing guarantees the command actually sent to the gait
             # stays in the safe region.
             vx_cmd, vyaw_cmd = apply_stability_cap(vx_cmd, vyaw_cmd)
+
+            # Anti-fall-corner: EMA smoothing can briefly mix a fast-forward
+            # step with a fresh yaw-burst step and land (vx, vyaw) in the RL
+            # trot's unstable mid-yaw corner (≈ |vyaw| 0.3-0.9 with vx>0.45) —
+            # the cause of the rare seed-999 fall.  With lateral vy now doing
+            # the cross-corridor work, the robot no longer needs fast yaw-turns,
+            # so we cap forward speed through that corner for stability.
+            if 0.32 < abs(vyaw_cmd) < 0.90 and vx_cmd > 0.45:
+                vx_cmd = 0.45
+
+            # ── Lateral (vy) control + HARD PASSAGE GATE + repulsion ──────────
+            # The policy is otherwise a unicycle (vy fixed at 0).  A body-frame
+            # lateral command lets the robot STRAFE into its passage, and a HARD
+            # GATE forbids advancing past a row's entry plane until the body is
+            # laterally inside the chosen safe band — guaranteeing it enters the
+            # gap, not the obstacle.  An always-on obstacle repulsion is the
+            # defense-in-depth safety net.  `_gate_holding` tells the stuck
+            # detectors that a brief x-hold here is intentional (aligning).
+            vy_cmd = 0.0
+            _gate_holding = False
+            if ball_mode_env == "corridor" and not incapped \
+                    and os.environ.get("VY_LATERAL", "1") == "1":
+                ROBOT_HALF = float(os.environ.get("ROBOT_HALF", "0.34"))
+
+                # (A) Obstacle repulsion — always on.  Push away from any nearby
+                #     obstacle edge the body is approaching.
+                _REP_X = 1.9
+                _REP_M = 0.45
+                vy_rep = 0.0
+                for (_ox, _oy, _oh) in locals().get("ahead_obstacles", []):
+                    _dx = _ox - rx
+                    if _dx < -0.35 or _dx > _REP_X:
+                        continue
+                    _lat_gap = abs(ry - _oy) - (_oh + ROBOT_HALF)
+                    if _lat_gap < _REP_M:
+                        _s    = max(0.0, min(2.0, (_REP_M - _lat_gap) / _REP_M))
+                        _away = 1.0 if ry >= _oy else -1.0
+                        _xw   = 1.0 - max(0.0, _dx) / _REP_X    # closer ⇒ stronger
+                        vy_rep += _away * _s * (0.7 + 0.5 * _xw)
+                vy_rep *= float(os.environ.get("VY_REP_GAIN", "0.9"))
+
+                _committed = (detour_obs_x > 0 and "detour_band_lo" in locals())
+                if _committed:
+                    _blo, _bhi = detour_band_lo, detour_band_hi
+                    _bc = 0.5 * (_blo + _bhi)
+                    _keep_g  = min(0.15, max(0.0, 0.5 * (_bhi - _blo) - 0.03))
+                    _safe_lo, _safe_hi = _blo + _keep_g, _bhi - _keep_g
+                    _aligned = (_safe_lo - 0.03) <= ry <= (_safe_hi + 0.03)
+                    _x_gate  = detour_obs_x - OBS_X_HALF - 0.50   # entry plane
+                    _x_exit  = detour_obs_x + OBS_X_HALF + 0.35
+
+                if _committed and rx < _x_exit:
+                    # GATE MODE: centre the body in the band; do NOT cross the
+                    # entry plane while still misaligned.
+                    vy_cmd = max(-1.5, min(1.5, 2.4 * (_bc - ry) + vy_rep))
+                    if not _aligned:
+                        # Keep facing down-corridor so vy maps cleanly to world-y.
+                        vyaw_cmd = max(-0.20, min(0.20, vyaw_cmd))
+                        _d_gate = _x_gate - rx
+                        if _d_gate <= 0.05:
+                            vx_cmd = min(vx_cmd, 0.0)        # hold at gate, strafe
+                            _gate_holding = True
+                        else:
+                            # creep toward the gate, slowing as it nears
+                            vx_cmd = min(vx_cmd, max(0.0, _d_gate * 0.45))
+                            if _d_gate < 0.8:
+                                _gate_holding = True
+                    else:
+                        vx_cmd = min(vx_cmd, 0.62)           # aligned: ease through
+                else:
+                    # FREE CHASE: gently track the planned target laterally.
+                    _wdx = smooth_target_x - rx
+                    _wdy = smooth_target_y - ry
+                    _e_lat = -math.sin(yaw) * _wdx + math.cos(yaw) * _wdy
+                    _KVY   = float(os.environ.get("VY_GAIN", "1.2"))
+                    vy_cmd = max(-1.5, min(1.5, _KVY * _e_lat + vy_rep))
+
+            # Gate-hold watchdog: count consecutive steps the gate intentionally
+            # holds forward progress (for stuck-suppression).  After a timeout
+            # we STOP suppressing so normal stuck-recovery can break a genuine
+            # deadlock rather than holding at the gate forever.
+            if _gate_holding:
+                _gate_hold_steps = locals().get("_gate_hold_steps", 0) + 1
+            else:
+                _gate_hold_steps = 0
+            # True only while a hold is active AND under the timeout (8 s).
+            _gate_suppress_stuck = _gate_holding and _gate_hold_steps < 400
 
             # ── stuck-recovery: reverse + commit yaw to flip side ───────
             # When the stuck-detector fires, command REVERSE vx for ~2 s

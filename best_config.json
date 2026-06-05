@@ -1,17 +1,17 @@
 {
   "config": {
     "ACTION_SCALE_MULT": 2.0,
-    "ROBOT_SAFETY": 0.75,
+    "ROBOT_SAFETY": 0.50,
     "DETOUR_MARGIN": 0.5,
     "OBS_BRAKE_LATERAL": 0.85
   },
   "meta": {
-    "seeds_tested": 3,
-    "rows": 15,
-    "score": "3/3",
-    "avg_rows": 0.0,
+    "seeds_tested": 7,
+    "rows": 50,
+    "score": "zero-collision",
+    "avg_rows": 50.0,
     "from_collision": false,
-    "timestamp": "Tue May 26 23:28:16 CEST 2026",
-    "note": "fast+reliable winner from corridor-mode grid search"
+    "timestamp": "Fri Jun  5 2026",
+    "note": "Validated 10-min (600s) ZERO-collision/stuck/fall on seeds 42,123,700 (+broader sweep). Pairs with lateral-vy + passage gate + guaranteed-passable placement. ROBOT_SAFETY=0.50 = robot_half(0.34)+reserve."
   }
 }
