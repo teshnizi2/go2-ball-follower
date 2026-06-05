@@ -1440,6 +1440,51 @@ def _reset(
     print("Reset (in place)." if keep_x is not None else "Reset.")
 
 
+def _passage_positions(row_lane_center: float, h_w: float, h_n: float,
+                       min_pass: float = 1.45):
+    """Arrange a 2-obstacle row so it ALWAYS leaves one passable lane
+    (≥ ``min_pass`` wide) for the robot, around a gap centred on
+    ``row_lane_center``.  Returns ``(wide_y, narrow_y)``.  Used both at startup
+    and when recycling rows for the endless corridor."""
+    import random as _rnd
+    MIN_EDGE_GAP = 0.40
+    CORR_OBS  = 2.50
+    HALF_PASS = 0.5 * min_pass
+    _ypc_lim  = CORR_OBS - HALF_PASS
+    y_pass    = max(-_ypc_lim, min(_ypc_lim, row_lane_center))
+    below_hi  = y_pass - HALF_PASS
+    above_lo  = y_pass + HALF_PASS
+    w_below   = below_hi + CORR_OBS
+    w_above   = CORR_OBS - above_lo
+
+    def _place_in(rlo, rhi, h):
+        c = 0.5 * (rlo + rhi)
+        _slack = 0.5 * (rhi - rlo - 2 * h)
+        if _slack > 0.05:
+            c += _rnd.uniform(-1.0, 1.0) * _slack
+        return max(rlo + h, min(rhi - h, c))
+
+    if w_below >= 2 * h_w and w_above >= 2 * h_n and _rnd.random() < 0.5:
+        wide_y   = _place_in(-CORR_OBS, below_hi, h_w)
+        narrow_y = _place_in(above_lo,  CORR_OBS, h_n)
+    elif w_above >= 2 * h_w and w_below >= 2 * h_n:
+        wide_y   = _place_in(above_lo,  CORR_OBS, h_w)
+        narrow_y = _place_in(-CORR_OBS, below_hi, h_n)
+    elif w_below >= 2 * h_w and w_above >= 2 * h_n:
+        wide_y   = _place_in(-CORR_OBS, below_hi, h_w)
+        narrow_y = _place_in(above_lo,  CORR_OBS, h_n)
+    elif w_below >= w_above:
+        wide_y   = -CORR_OBS + h_w
+        narrow_y = min(below_hi - h_n, -CORR_OBS + 2 * h_w + MIN_EDGE_GAP + h_n)
+    else:
+        wide_y   = CORR_OBS - h_w
+        narrow_y = max(above_lo + h_n, CORR_OBS - 2 * h_w - MIN_EDGE_GAP - h_n)
+    # Clamp so each obstacle's full extent stays inside the corridor walls.
+    wide_y   = max(-(CORR_OBS - h_w + 0.30), min(CORR_OBS - h_w + 0.30, wide_y))
+    narrow_y = max(-(CORR_OBS - h_n + 0.30), min(CORR_OBS - h_n + 0.30, narrow_y))
+    return wide_y, narrow_y
+
+
 def main() -> None:
     model = mujoco.MjModel.from_xml_path(str(SCENE_XML))
     data  = mujoco.MjData(model)
@@ -1664,6 +1709,8 @@ def main() -> None:
         obstacle_world_positions = []  # (x, y, y_half) for ball mover
         all_robot_obstacles = []
         used_mids = set()
+        corridor_rows = []             # per-row records for the endless recycler
+        _row_spacing = spacing         # captured for recycling row placement
 
         def _largest_free_band(blocked_zones):
             """Given list of (lo, hi) blocked y-intervals, return the
@@ -1735,66 +1782,32 @@ def main() -> None:
             y_n_max_abs = max(0.0, 2.30 - h_n)
 
             # ── Passage-GUARANTEED placement ─────────────────────────────────
-            # Every row MUST leave one physically passable lane (≥ MIN_PASS wide)
-            # for the robot.  Otherwise two wide late-row obstacles can split the
-            # corridor into impassable slivers (a 4 cm gap) and the robot wedges
-            # forever — no planner can fit a 0.68 m body through that.  We keep
-            # obstacle SIZES, COUNT and COLOUR exactly as scaled above; only the
-            # lateral ARRANGEMENT is built around a guaranteed gap that follows
-            # the serpentine lane centre for visual variety.
-            MIN_EDGE_GAP = 0.40
-            CORR_OBS  = 2.50                      # obstacle extents stay within ±this
-            MIN_PASS  = float(os.environ.get("MIN_PASSAGE", "1.45"))
-            HALF_PASS = 0.5 * MIN_PASS
-            _ypc_lim  = CORR_OBS - HALF_PASS
-            y_pass    = max(-_ypc_lim, min(_ypc_lim, row_lane_center))   # passage centre
-            below_hi  = y_pass - HALF_PASS       # top edge of lower side-region
-            above_lo  = y_pass + HALF_PASS       # bottom edge of upper side-region
-            w_below   = below_hi + CORR_OBS      # room below the passage
-            w_above   = CORR_OBS - above_lo      # room above the passage
-
-            def _place_in(rlo, rhi, h):
-                # Centre an obstacle of half-width h inside [rlo, rhi], with a
-                # little jitter when there is slack.
-                c = 0.5 * (rlo + rhi)
-                _slack = 0.5 * (rhi - rlo - 2 * h)
-                if _slack > 0.05:
-                    c += random.uniform(-1.0, 1.0) * _slack
-                return max(rlo + h, min(rhi - h, c))
-
-            # Prefer one obstacle on each side of the passage; otherwise stack
-            # both on the roomier side (passage hugs the other wall).
-            if w_below >= 2 * h_w and w_above >= 2 * h_n and random.random() < 0.5:
-                wide_y   = _place_in(-CORR_OBS, below_hi, h_w)
-                narrow_y = _place_in(above_lo,  CORR_OBS, h_n)
-            elif w_above >= 2 * h_w and w_below >= 2 * h_n:
-                wide_y   = _place_in(above_lo,  CORR_OBS, h_w)
-                narrow_y = _place_in(-CORR_OBS, below_hi, h_n)
-            elif w_below >= 2 * h_w and w_above >= 2 * h_n:
-                wide_y   = _place_in(-CORR_OBS, below_hi, h_w)
-                narrow_y = _place_in(above_lo,  CORR_OBS, h_n)
-            elif w_below >= w_above:
-                wide_y   = -CORR_OBS + h_w
-                narrow_y = min(below_hi - h_n, -CORR_OBS + 2 * h_w + MIN_EDGE_GAP + h_n)
-            else:
-                wide_y   = CORR_OBS - h_w
-                narrow_y = max(above_lo + h_n, CORR_OBS - 2 * h_w - MIN_EDGE_GAP - h_n)
+            # Every row leaves one physically passable lane (≥ MIN_PASS wide);
+            # obstacle SIZES/COUNT/COLOUR are unchanged, only the lateral
+            # arrangement around a guaranteed gap.  See _passage_positions().
+            MIN_PASS = float(os.environ.get("MIN_PASSAGE", "1.45"))
+            wide_y, narrow_y = _passage_positions(row_lane_center, h_w, h_n, MIN_PASS)
 
             for mid, oy, oy_half in [
                 (wide_mid,   wide_y,   h_w),
                 (narrow_mid, narrow_y, h_n),
             ]:
-                # Final clamp so the obstacle's extent stays inside the corridor.
-                _wall_lim = CORR_OBS - oy_half + 0.30   # allow centre near wall, extent ≤2.58
-                shifted_y = max(-_wall_lim, min(_wall_lim, oy))
                 is_tall = obstacle_is_tall_by_mid[mid]
                 data.mocap_pos[mid, 0] = float(xp)
-                data.mocap_pos[mid, 1] = shifted_y
+                data.mocap_pos[mid, 1] = oy
                 data.mocap_pos[mid, 2] = 0.40 if is_tall else 0.12
-                obstacle_world_positions.append((float(xp), shifted_y, oy_half))
+                obstacle_world_positions.append((float(xp), oy, oy_half))
                 all_robot_obstacles.append(("tall" if is_tall else "short",
-                                            float(xp), shifted_y))
+                                            float(xp), oy))
                 used_mids.add(mid)
+
+            # Record the row for the endless-corridor recycler.
+            corridor_rows.append({
+                "wide_mid": wide_mid, "narrow_mid": narrow_mid,
+                "gid_w": obstacle_gid_by_mid.get(wide_mid, -1),
+                "gid_n": obstacle_gid_by_mid.get(narrow_mid, -1),
+                "h_w": h_w, "h_n": h_n, "x": float(xp),
+            })
 
         # Push unused obstacles off-map.
         for mid in obstacle_mocap_ids:
@@ -2168,6 +2181,48 @@ def main() -> None:
                 2.0 * (quat[0]*quat[3] + quat[1]*quat[2]),
                 1.0 - 2.0 * (quat[2]**2 + quat[3]**2),
             )
+
+            # ── Endless corridor: recycle passed rows to the front ───────────
+            # Once the robot clears the rearmost obstacle row, relocate it ahead
+            # of the frontmost row so the course NEVER runs out (the planner and
+            # ball-mover read obstacle positions live, so moving the mocap geom
+            # is enough).  Recycled rows are painted near-black ("deep corridor")
+            # and keep the passage guarantee.  Disable with CORRIDOR_ENDLESS=0.
+            if (os.environ.get("BALL_PATH_MODE", "").lower() == "corridor"
+                    and os.environ.get("CORRIDOR_ENDLESS", "1") == "1"
+                    and locals().get("corridor_rows")):
+                _rear = min(corridor_rows, key=lambda r: r["x"])
+                if rx > _rear["x"] + 5.0:
+                    _new_x  = max(r["x"] for r in corridor_rows) + _row_spacing
+                    _hw, _hn = _rear["h_w"], _rear["h_n"]
+                    _wy, _ny = _passage_positions(
+                        _row_lane_center(99, _new_x), _hw, _hn,
+                        locals().get("MIN_PASS", 1.45))
+                    _rear["x"] = _new_x
+                    for _mid, _gid, _oy in (
+                        (_rear["wide_mid"],   _rear["gid_w"], _wy),
+                        (_rear["narrow_mid"], _rear["gid_n"], _ny),
+                    ):
+                        data.mocap_pos[_mid, 0] = _new_x
+                        data.mocap_pos[_mid, 1] = _oy
+                        if _gid >= 0:
+                            model.geom_matid[_gid] = -1
+                            model.geom_rgba[_gid, 0:3] = 0.07
+                    # Rebuild the static lists the brake + ball-mover consume.
+                    obstacle_world_positions = [
+                        (float(data.mocap_pos[m, 0]), float(data.mocap_pos[m, 1]),
+                         obstacle_y_half_by_mid.get(m, 0.30))
+                        for m in obstacle_mocap_ids if m in used_mids]
+                    all_robot_obstacles = [
+                        ("tall" if obstacle_is_tall_by_mid.get(m, True) else "short",
+                         float(data.mocap_pos[m, 0]), float(data.mocap_pos[m, 1]))
+                        for m in obstacle_mocap_ids if m in used_mids]
+                    mover.set_corridor_obstacles(obstacle_world_positions)
+                    if os.environ.get("RECYCLE_DEBUG", "0") == "1":
+                        _oxs = [p[0] for p in obstacle_world_positions]
+                        print(f"[RECYCLE] t={float(data.time):.1f} rx={rx:.1f} "
+                              f"row→x={_new_x:.1f}  obstacle_x_range=[{min(_oxs):.1f},{max(_oxs):.1f}] "
+                              f"n_ahead={sum(1 for x in _oxs if x > rx)}", flush=True)
 
             # ── move target ──────────────────────────────────────────────
             # Target path follows the configured mode; on sustained loss it waits
@@ -3087,6 +3142,14 @@ def main() -> None:
                     _e_lat = -math.sin(yaw) * _wdx + math.cos(yaw) * _wdy
                     _KVY   = float(os.environ.get("VY_GAIN", "1.2"))
                     vy_cmd = max(-1.5, min(1.5, _KVY * _e_lat + vy_rep))
+
+                # Don't strafe hard WHILE turning hard — combined lateral + yaw
+                # momentum builds sideways roll and tipped the robot over
+                # (observed 45° roll fall).  Suppress vy during sharp turns and
+                # use a tighter global lateral clip for gait stability.
+                if abs(vyaw_cmd) > 0.45:
+                    vy_cmd *= 0.30
+                vy_cmd = max(-1.2, min(1.2, vy_cmd))
 
             # Gate-hold watchdog: count consecutive steps the gate intentionally
             # holds forward progress (for stuck-suppression).  After a timeout
