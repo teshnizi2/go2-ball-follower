@@ -6,9 +6,12 @@
 
 **Team Ava** — Mohammadreza AhmadiTeshnizi · Patrik Perčinić
 
-[![status](https://img.shields.io/badge/status-demo--ready-success)]()  
-**Demo video:** see the technical report or `~/Desktop/go2_demo_1min.mp4` after running `record_corridor.command`.  
-**Technical report PDF:** `~/Desktop/go2_technical_report.pdf` (also re-buildable from `/tmp/report/report.html`).
+[![status](https://img.shields.io/badge/status-demo--ready-success)]()
+
+### Project links (deliverables)
+- **Demo video (60 s):** `demo/go2_submission.mp4` in this repo — or regenerate any time with `./make_demo.command`.
+- **Code repository:** <https://github.com/teshnizi2/go2-ball-follower>
+- **Technical report:** `report/go2_technical_report.pdf`
 
 ---
 
@@ -65,8 +68,12 @@ Keys: **Q / Esc** = quit · **R** = reset · **P** = pause.
 
 ### Record a video
 ```bash
-./record_corridor.command       # 60-sec recording → ~/Desktop/go2_demo_1min.mp4
+./make_demo.command           # headless, no window, ALWAYS saves → ~/Desktop/go2_demo.mp4
+./make_demo.command 1400      # longer clip (arg = sim-seconds; ~90 s of video per 700)
 ```
+`make_demo.command` renders the full dashboard headlessly (fast, reliable, no display needed).
+`record_corridor.command` does the same in a live on-screen window if you prefer to watch it run
+and stop it with **Q**.
 
 ---
 
@@ -78,15 +85,18 @@ Keys: **Q / Esc** = quit · **R** = reset · **P** = pause.
 | `SIM_SPEED` | **3.0** | Wall-clock scaling (e.g. 3 = 3× faster playback); `run.sh` default |
 | `RENDER_SKIP` | **4** | Render every Nth control step (~12 fps display); `run.sh` default |
 | `GO2_SHADOWS` | **0** | `0` = shadows off (fast); `1` = shadows on (use for recordings) |
-| `STAGE_SECONDS` | 20.0 | Seconds between stage advances |
+| `STAGE_DISTANCE` | 16.0 | Metres travelled per difficulty stage. Stage climbs 1→17 (capped) and holds — distance-based so a stumble can't reset it |
+| `CORRIDOR_ENDLESS` | 1 | `1` = recycle passed rows to the front → obstacles never run out (endless corridor) |
 | `CORRIDOR_SEED` | random | Fix the obstacle layout for reproducibility |
-| `OBS_ROWS` | 50 | Number of obstacle rows (1 row = 2 obstacles) |
-| `OBS_MIN_GAP` | 5.4 | Minimum spacing between rows (m) |
-| `MAX_OBS_HALF` | 0.55 | Cap on obstacle half-width (m) |
+| `OBS_ROWS` | 50 | Initial obstacle rows (1 row = 2 obstacles) before recycling kicks in |
+| `OBS_MIN_GAP` | 5.4 | Spacing between rows (m) |
 | `ACTION_SCALE_MULT` | 2.0 | Policy action gain — `best_config.json` override applied by `run.sh` |
-| `ROBOT_SAFETY` | 0.75 | Safety halo (m) the planner adds around each obstacle |
+| `ROBOT_SAFETY` | 0.50 | Safety halo (m) the planner adds around each obstacle (≈ robot half-width + reserve) |
 | `DETOUR_MARGIN` | 0.50 | Minimum free-band width margin (m) |
 | `OBS_BRAKE_LATERAL` | 0.85 | Lateral proximity (m) that triggers the obstacle brake |
+| `VY_LATERAL` | 1 | Enable lateral `vy` strafing (lets the robot slide sideways into a passage) |
+| `BALL_WEAVE_AMP` / `BALL_WEAVE_FREQ` | 0.75 / 0.055 | Ball's independent sine path — it moves *through* the obstacles so the robot must avoid them itself |
+| `DIFFICULTY_BASE` / `DIFFICULTY_CAP` | 0.55 / 1.6 | Difficulty at the start / its ceiling (obstacles widen + passage narrows with distance) |
 | `OBSTACLE_BRAKE` / `WALL_BRAKE` | 1 | Toggle the reactive brake layers |
 
 `run.sh` automatically loads the validated config from `best_config.json` (regenerate it

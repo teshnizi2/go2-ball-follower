@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Go2 Ball-Follower — Technical Report</title>
+<style>
+  @page { size: A4; margin: 14mm 13mm; }
+  * { box-sizing: border-box; }
+  html { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  body { font-family: "Times New Roman", Georgia, serif; font-size: 9.4pt;
+         line-height: 1.34; color: #111; margin: 0; }
+  h1 { font-size: 17pt; text-align: center; margin: 0 0 2pt; line-height: 1.2; }
+  .authors { text-align: center; font-size: 10pt; margin: 2pt 0; }
+  .affil { text-align: center; font-size: 8.8pt; color: #333; margin: 0 0 2pt; }
+  .links { text-align: center; font-size: 8.4pt; color: #1a3; margin: 0 0 8pt;
+           font-family: "Courier New", monospace; word-break: break-all; }
+  .cols { column-count: 2; column-gap: 7mm; }
+  h2 { font-size: 10pt; margin: 9pt 0 2pt; text-transform: uppercase;
+       letter-spacing: .3px; border-bottom: 1px solid #999; padding-bottom: 1px; }
+  h3 { font-size: 9.4pt; margin: 6pt 0 1pt; font-style: italic; }
+  p { margin: 0 0 4pt; text-align: justify; }
+  .abstract { font-size: 9pt; margin: 0 14mm 8pt; }
+  .abstract b { font-variant: small-caps; }
+  figure { margin: 5pt 0; break-inside: avoid; text-align: center; }
+  figure img { width: 100%; border: 1px solid #bbb; border-radius: 3px; }
+  figcaption { font-size: 8pt; color: #333; margin-top: 2pt; text-align: left; }
+  ol.refs { font-size: 8.2pt; padding-left: 14pt; margin: 2pt 0; }
+  ol.refs li { margin-bottom: 1.5pt; }
+  ul { margin: 2pt 0 4pt; padding-left: 13pt; }
+  li { margin-bottom: 1pt; }
+  code { font-family: "Courier New", monospace; font-size: 8.4pt; }
+  .kw { font-variant: small-caps; }
+  table.res { width: 100%; border-collapse: collapse; font-size: 8.3pt; margin: 3pt 0; }
+  table.res th, table.res td { border: 1px solid #bbb; padding: 1.5px 4px; text-align: left; }
+  table.res th { background: #eee; }
+  .full { column-span: all; }
+</style>
+</head>
+<body>
+
+<h1>Vision-Only Reactive Corridor Navigation for a Quadruped<br>
+using a Frozen Velocity Policy and a Hard Passage Gate</h1>
+<div class="authors">Mohammadreza AhmadiTeshnizi &nbsp;·&nbsp; Patrik Perčinić &nbsp;—&nbsp; <i>Team Ava</i></div>
+<div class="affil">Robotics 2026, LIACS — Leiden University</div>
+<div class="links">
+video: github.com/teshnizi2/go2-ball-follower/blob/main/demo/go2_submission.mp4 &nbsp;|&nbsp;
+code: github.com/teshnizi2/go2-ball-follower
+</div>
+
+<div class="abstract">
+<p><b>Abstract—</b> We present a system in which a simulated Unitree Go2 quadruped
+follows a moving red ball through a cluttered, never-ending corridor using
+<i>only</i> its head-mounted RGB camera — no GPS, lidar, depth sensor, or pre-built
+map. We wrap a <i>frozen</i>, pre-trained PPO velocity-tracking locomotion policy
+with three layers we built ourselves: an HSV + CamShift perception module, a
+reactive free-band planner, and a difficulty curriculum. Our central observation
+is that the policy's lateral-velocity (<code>v<sub>y</sub></code>) command channel —
+left unused by a naïve forward-chasing controller — can be driven so that an
+otherwise unicycle-like walker can <i>strafe</i> into narrow wall-side passages
+without turning. Coupling this with a <i>hard passage gate</i> (the robot may not
+cross a row until its body is laterally inside the chosen gap) and a placement rule
+that guarantees one passable lane per row, the robot traverses a 10-minute
+(600&nbsp;s) run with <b>zero obstacle or wall collisions</b> across nine random
+seeds, at a natural ≈0.6&nbsp;m/s. We deliberately let the target ball pass
+<i>through</i> obstacles so that the avoidance burden falls entirely on the robot.</p>
+</div>
+
+<div class="cols">
+
+<h2>1. Introduction</h2>
+<p>Legged robots navigating cluttered spaces typically rely on rich exteroception
+(lidar, depth, motion capture) and a mapping/planning stack. We ask a deliberately
+constrained question for a course project: <i>how far can a quadruped get through a
+dense obstacle corridor using only a single head-mounted RGB camera and a
+locomotion policy it did not train?</i></p>
+<p>Our agent chases a moving red ball — a stand-in for a navigation goal — down a
+5&nbsp;m-wide corridor packed with obstacle rows that grow wider and the passages
+narrower the further it travels. Perception is classical colour tracking; the
+locomotion is a frozen, pre-trained reinforcement-learning (RL) velocity policy
+from the RSL-RL framework&nbsp;[1]; everything between — perception, reactive
+planning, safety, the simulation environment, and the visualisation — is ours.</p>
+<p><b>Novelty.</b> Rudin&nbsp;et&nbsp;al.&nbsp;[1] train an <i>omnidirectional</i>
+velocity-tracking policy that accepts a command <code>(v<sub>x</sub>, v<sub>y</sub>,
+v<sub>ω</sub>)</code>. Controllers that merely "walk toward a target" drive only
+<code>v<sub>x</sub></code> and <code>v<sub>ω</sub></code>, making the robot a
+non-holonomic unicycle that can change its lateral position only by turning. We
+show that <i>re-activating the dormant <code>v<sub>y</sub></code> channel</i> of
+the frozen policy, together with a gate that refuses to enter a gap until the body
+is aligned, is what turns an un-fine-tuned walker into a reliable corridor-threader.
+To our knowledge this specific combination — exploiting an unused command degree of
+freedom of a pre-trained policy purely for reactive, monocular obstacle avoidance —
+is not reported in the works we surveyed.</p>
+
+<h2>2. Related Work</h2>
+<p><b>Learned legged locomotion.</b> End-to-end RL has produced robust quadruped
+controllers in simulation and on hardware&nbsp;[2], including blind locomotion over
+rough terrain&nbsp;[3] and massively-parallel training that yields velocity-command
+policies in minutes&nbsp;[1]. We consume such a policy as a black-box actuator and
+never modify its weights.</p>
+<p><b>Reactive navigation.</b> Rather than build a map, we use a free-band /
+gap-selection planner with commit-and-hold hysteresis and a pure-pursuit
+steering law&nbsp;[4]. This is closer to potential-field and "follow-the-gap"
+reactive methods than to global planning, which suits a sensor-light, fast-reacting
+agent.</p>
+<p><b>Monocular target tracking.</b> The ball is found with an HSV colour mask and
+tracked with CamShift&nbsp;[5], a lightweight histogram-back-projection tracker —
+chosen over a CNN detector to keep the pipeline transparent and dependency-free.
+The simulator is MuJoCo&nbsp;[6]; the robot model is the Go2 from the MuJoCo
+Menagerie.</p>
+
+<h2>3. System Design</h2>
+<p>The agent is three layers wrapped around the frozen policy (Fig.&nbsp;1):</p>
+<ul>
+<li><b>Perception</b> (<code>tracker.py</code>): dual-range HSV mask + morphology to
+detect the red ball, then CamShift with an adaptive ROI and a confidence-based
+re-detect/reset.</li>
+<li><b>Reactive planning</b> (<code>controller.py</code>, <code>main.py</code>):
+selects a passage through the next obstacle row, holds the commitment, and emits a
+body-frame velocity command — including lateral strafe — that a pure-pursuit law
+tracks. A hard gate and an obstacle-repulsion term form the safety net.</li>
+<li><b>Locomotion</b> (<code>low_level.py</code>): the frozen PPO policy maps a
+45-D proprioceptive observation + the <code>(v<sub>x</sub>,v<sub>y</sub>,
+v<sub>ω</sub>)</code> command to 12 joint-position targets at 50&nbsp;Hz; a PD law
+realises them at 500&nbsp;Hz.</li>
+</ul>
+<p>A separate <i>environment</i> module generates the corridor: it places obstacle
+rows, advances a distance-based difficulty curriculum, and recycles passed rows to
+the front so the course is effectively infinite.</p>
+
+<figure>
+  <img src="fig_dashboard.png" alt="dashboard">
+  <figcaption><b>Fig. 1.</b> Live 720×720 dashboard: third-person chase view with
+  the planned-path arrow and obstacle safety halo (left), the robot's head camera
+  with the tracked ball (top-right), a top-down 2-D map (mid-right), and the
+  telemetry panel (speed, range, detection confidence, status LED, stage).</figcaption>
+</figure>
+
+<h2>4. Implementation</h2>
+
+<h3>4.1 Perception</h3>
+<p>Two HSV ranges cover red's hue wrap-around; after morphological cleanup the
+largest plausible contour seeds a hue histogram and an ROI. CamShift then tracks
+the ROI frame-to-frame, coasting through brief occlusions; prolonged loss triggers
+a fresh detection. In simulation we additionally know the ball's ground-truth
+bearing, which the controller uses so that chasing continues even while the ball is
+momentarily hidden behind an obstacle.</p>
+
+<h3>4.2 Reactive planner and the passage gate</h3>
+<p>For the nearest obstacle row, the planner subtracts each obstacle's inflated
+footprint (half-width + a safety halo ≈ the robot's half-width plus a tracking
+reserve) from the corridor and picks the widest reachable free <i>band</i>. It then
+aims at the band's <i>centre</i> — never its edge — and <i>commits</i> to that band
+until the robot is fully past the row, preventing the goal from yanking the body
+back into the obstacle it just cleared.</p>
+<p>The decisive component is the <b>hard passage gate</b>: while the robot is not
+yet laterally inside the chosen band, it is forbidden from advancing past the row's
+entry plane — forward speed is throttled to zero at the plane while a strong lateral
+command slides the body into the gap. Only once aligned does it proceed through.
+Because the gate guarantees alignment before entry, the robot stays collision-free
+regardless of where the ball leads it.</p>
+
+<h3>4.3 Re-activating the lateral channel</h3>
+<p>The high-level command is converted to the body frame and the lateral component
+drives the policy's <code>v<sub>y</sub></code> input — historically fixed at zero in
+our first controller. This lets the robot translate sideways into a wall-side
+passage without the slow, error-prone turn-walk-turn manoeuvre of a unicycle. An
+always-on repulsion term adds a lateral push away from any obstacle edge the body
+nears (defence in depth), and an "anti-corner" rule caps forward speed during sharp
+turns to avoid a gait-instability region of the frozen policy. A stumble triggers
+in-place recovery (the robot stands back up where it fell) rather than a restart.</p>
+
+<h3>4.4 Environment and curriculum</h3>
+<p>Every row is <i>constructed</i> to leave one lane wide enough for the robot, so
+no row is ever physically impassable — wide late-row obstacles otherwise split the
+corridor into sub-body-width slivers and trap any planner. Difficulty is a function
+of <i>distance travelled</i>: obstacles widen, the guaranteed passage narrows toward
+a floor, and the colour darkens, in 17 discrete stages that climb and then hold.
+Passed rows are recycled ahead of the robot, making the corridor endless. The target
+ball follows its <i>own</i> sinusoidal path that ignores the obstacles — it passes
+straight through them — so the robot cannot simply trail a pre-cleared route and
+must perform its own avoidance.</p>
+
+<figure>
+  <img src="fig_stage17.png" alt="stage 17">
+  <figcaption><b>Fig. 2.</b> Deep in the run (stage&nbsp;17, ≈340&nbsp;m): wide black
+  obstacles fill the corridor centre while the robot threads the guaranteed lane.
+  The planner's green safety halo marks the obstacle being actively avoided;
+  collision count remains 0.</figcaption>
+</figure>
+
+<h2>5. Results</h2>
+<p>We evaluate headless on nine fixed seeds, 600&nbsp;s (10&nbsp;min) each, counting
+<i>any</i> robot–obstacle or robot–wall contact as a failure.</p>
+<table class="res">
+<tr><th>Metric</th><th>Result</th></tr>
+<tr><td>Collision-free runtime</td><td><b>10 min, 0 collisions</b> (9 seeds)</td></tr>
+<tr><td>Obstacle rows cleared</td><td>all, continuously (endless)</td></tr>
+<tr><td>Difficulty stages reached</td><td>1 → 17, then held</td></tr>
+<tr><td>Avg. forward speed</td><td>≈0.6 m/s (slows to align)</td></tr>
+<tr><td>Active detours / 10 min</td><td>≈30–55 (real avoidance)</td></tr>
+<tr><td>Physics rate</td><td>≈5,700 Hz</td></tr>
+</table>
+<p>The robot weaves the full ±1.8&nbsp;m width of the corridor following a ball that
+plows through the obstacles; the mean robot–ball lateral offset is ≈0.8&nbsp;m
+(frequently &gt;2&nbsp;m), confirming the avoidance is genuinely the robot's own and
+not merely ball-following. Removing any one of {lateral <code>v<sub>y</sub></code>,
+the gate, the passage guarantee} re-introduces collisions, so all three are
+necessary.</p>
+
+<h2>6. Discussion and Limitations</h2>
+<p>The frozen policy is un-fine-tuned and exhibits ≈0.25&nbsp;m lateral tracking
+error and occasional gait stumbles under aggressive cross-corridor manoeuvres; we
+mitigate but do not eliminate these (the robot always recovers in place, and no
+stumble produced a collision in the reported runs). Perception is colour-based and
+would not survive lighting or colour changes that a CNN detector would. Evaluation
+is a nine-seed sweep, not exhaustive. Natural future work: fine-tune the policy for
+tighter lateral tracking, replace HSV with a learned detector, and add short-horizon
+multi-row planning so the approach to each gap is set up by the previous one.</p>
+
+<h2>7. Conclusion</h2>
+<p>A quadruped can navigate a dense, endless obstacle corridor collision-free for 10
+minutes using only a head RGB camera and a locomotion policy it never trained — if
+the controller exploits the policy's unused lateral-velocity channel and enforces a
+hard "align-before-you-enter" gate at every passage. The result argues that careful
+<i>use</i> of a general pre-trained policy can substitute for a great deal of
+bespoke control and exteroception.</p>
+
+<h2 class="full">References</h2>
+<ol class="refs" style="column-span: all; column-count: 2; column-gap: 7mm;">
+<li>N. Rudin, D. Hoeller, P. Reist, M. Hutter. "Learning to Walk in Minutes Using
+Massively Parallel Deep Reinforcement Learning." <i>CoRL</i>, 2021. <i>(source of
+our policy)</i></li>
+<li>J. Hwangbo et&nbsp;al. "Learning agile and dynamic motor skills for legged
+robots." <i>Science Robotics</i>, 4(26), 2019.</li>
+<li>J. Lee, J. Hwangbo, L. Wellhausen, V. Koltun, M. Hutter. "Learning quadrupedal
+locomotion over challenging terrain." <i>Science Robotics</i>, 5(47), 2020.</li>
+<li>R. C. Coulter. "Implementation of the Pure Pursuit Path Tracking Algorithm."
+CMU-RI-TR-92-01, 1992.</li>
+<li>G. R. Bradski. "Computer Vision Face Tracking for Use in a Perceptual User
+Interface (CamShift)." <i>Intel Technology Journal</i>, 1998.</li>
+<li>E. Todorov, T. Erez, Y. Tassa. "MuJoCo: A physics engine for model-based
+control." <i>IROS</i>, 2012.</li>
+</ol>
+
+</div>
+</body>
+</html>

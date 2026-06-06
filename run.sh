@@ -46,6 +46,7 @@ else
 fi
 
 export BALL_PATH_MODE=corridor   # always run in corridor/obstacle mode
+# TODO: add a --record flag in here instead of the separate .command file
 export ACTION_SCALE_MULT="$A"
 export ROBOT_SAFETY="$S"
 export DETOUR_MARGIN="$D"

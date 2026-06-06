@@ -30,6 +30,7 @@ import cv2
 import numpy as np
 
 # ── HSV thresholds for red (wraps at 180 in OpenCV) ──────────────────────────
+# TODO: these are hand-tuned for our red ball + the lab lighting, will totally break otherwise
 _RED_LOW1  = np.array([0,   100,  62], dtype=np.uint8)
 _RED_HIGH1 = np.array([6,   255, 255], dtype=np.uint8)   # tightened from 12: orange short obstacles sit at H≈9 in OpenCV
 _RED_LOW2  = np.array([160, 100,  62], dtype=np.uint8)
@@ -141,6 +142,7 @@ class Detection(NamedTuple):
 
 
 class BallTracker:
+    # finds the red ball in the head camera with HSV colour + CamShift. classic opencv, no neural net
     """
     Stateful per-frame ball tracker using CamShift on a hue back-projection.
 

@@ -1427,6 +1427,7 @@ def _reset(
 
 
 def _passage_positions(row_lane_center: float, h_w: float, h_n: float,
+# TODO: obstacles can still overlap each other here -> looks a bit weird, but it's passable so leaving it
                        min_pass: float = 1.45):
     """Arrange a 2-obstacle row so it ALWAYS leaves one passable lane
     (≥ ``min_pass`` wide) for the robot, around a gap centred on
@@ -1472,6 +1473,7 @@ def _passage_positions(row_lane_center: float, h_w: float, h_n: float,
 
 
 def _difficulty01(x: float) -> float:
+# TODO: difficulty caps at 1.6 -> maybe let it keep ramping past stage 17?
     """Difficulty as a function of distance travelled down the corridor: 0 at
     the start, rising and saturating near the end of the ramp.  Drives wider
     obstacles, a narrower robot lane and darker colour the further we go, so an
@@ -1508,6 +1510,7 @@ def _row_difficulty(model, gid_w: int, gid_n: int, x: float):
 
 
 def main() -> None:
+    # this is the big one: load mujoco, set up the cameras + obstacles, then run the control loop. it's long, sorry
     model = mujoco.MjModel.from_xml_path(str(SCENE_XML))
     data  = mujoco.MjData(model)
     model.opt.timestep = SIM_DT
@@ -1757,6 +1760,7 @@ def main() -> None:
         _CURVE_X0 = float(os.environ.get("OBS_MIN_X", "4.0"))
         _WEAVE_AMP = float(os.environ.get("CORRIDOR_WEAVE", "1.7"))
         def _row_lane_center(row_idx: int, xp: float) -> float:
+        # TODO: the two sine freqs were picked by eye, not sure they're the nicest
             ds = (xp - _CURVE_X0)
             return _WEAVE_AMP * (0.85 * math.sin(0.12 * ds)
                                  + 0.15 * math.sin(0.29 * ds + 1.3))
@@ -1916,6 +1920,7 @@ def main() -> None:
     # When set, render the FULL dashboard (chase + path arrow + head-cam +
     # 2D map + telemetry) headlessly and write it to the recorder.
     _REC_DASH = (chase_vw is not None) and GUI_CHASE_ONLY
+    # TODO: way too many recording flags now (RECORD_VIDEO/RECORD_CHASE/...), merge them
 
     if not HEADLESS:
         cv2.namedWindow("Go2 Object Tracking", cv2.WINDOW_NORMAL)
@@ -1949,6 +1954,7 @@ def main() -> None:
     rx = ry = rz = 0.0
 
     while running:
+    # main control loop. one pass = one 50 Hz control step (physics substeps happen inside)
         if not paused:
             # ── physics + gait at 500 Hz ──────────────────────────────────
             # Tilt-aware command guard: damp both vx and vyaw as tilt grows.
@@ -2042,6 +2048,7 @@ def main() -> None:
                     if "stuck_event_count" not in locals():
                         stuck_event_count = 0
                     stuck_event_count += 1
+                    # TODO: this stuck-recovery ladder is kinda hacky, clean up after the deadline
                     stuck_hist.clear()
                     _last_stuck_rx = _now_rx
                     if stuck_event_count == 1:
@@ -2556,6 +2563,7 @@ def main() -> None:
                 # Tightened for shortest-path mode: robot can graze obstacles
                 # at ~25 cm clearance instead of 45 cm. Configurable via env.
                 ROBOT_SAFETY  = float(os.environ.get("ROBOT_SAFETY",  "0.25"))
+                # TODO: 0.50 was basically trial and error, should actually measure the robot body width one day
                 DETOUR_MARGIN = float(os.environ.get("DETOUR_MARGIN", "0.15"))
                 # Long lookahead so the robot COMMITS to a row's passage early
                 # and starts the (possibly large) lateral move with enough

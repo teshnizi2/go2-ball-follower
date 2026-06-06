@@ -7,6 +7,7 @@ cd "$(dirname "$0")"
 OUT="$HOME/Desktop/go2_demo.mp4"
 RAW="/tmp/go2_demo_chase.mp4"
 SECONDS_SIM="${1:-700}"     # sim seconds (~90 s of video per 700) — pass an arg to change
+# TODO: also let you pass the seed as $2
 echo "===> Rendering ${SECONDS_SIM}s of sim → full dashboard video (headless, fast)..."
 GO2_HEADLESS=1 RECORD_CHASE="$RAW" RECORD_FPS=30 RENDER_SKIP=13 \
 GO2_GUI_VIEW=chase GO2_HEADLESS_SECONDS="$SECONDS_SIM" GO2_SHADOWS=1 \

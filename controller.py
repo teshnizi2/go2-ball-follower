@@ -128,6 +128,7 @@ INVISIBLE_THRESH: int = 45    # × 20 ms/step = 900 ms hysteresis.  Raised 15→
 X_TURN_ON_PX:    float = 35.0   # enter a turn when |cx_err| > this
 X_TURN_OFF_PX:   float = 14.0   # leave the turn when |cx_err| < this (hysteresis)
 YAW_HIGH:        float = 0.90   # command emitted while turning — bang-bang pulses only
+# TODO: never properly swept YAW_HIGH, 0.90 just felt stable enough in testing
                                  # hold for TURN_MAX_S=0.4s so roll doesn't accumulate.
                                  # Needed this high to outpace ball ω=0.26 rad/s at the
                                  # bang-bang duty cycle (~40%, so effective yaw 0.36 rad/s).
@@ -201,6 +202,7 @@ def apply_stability_cap(vx: float, vyaw: float) -> tuple[float, float]:
 
 
 class FollowController:
+    # our own controller that sits ON TOP of the pretrained walking policy. mostly figures out vx/vyaw/vy from where the ball is
     """
     3-state ball-follow controller with TRACKING hysteresis.
 
@@ -632,6 +634,7 @@ class FollowController:
         return self._bang_bang_search_step(dt)
 
     def _bang_bang_search_step(self, dt: float) -> tuple[float, float]:
+    # TODO: search barely fires anymore now that we use the planner bearing, maybe delete this
         """Bang-bang search with YAW_HIGH pulses and long rest periods.
 
         Short YAW_HIGH=0.9 ON pulses cross the dead zone fast and produce

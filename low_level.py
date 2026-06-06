@@ -245,6 +245,7 @@ _VYAW_OBS_SCALE = 2.0   # scale applied to vyaw before inserting into obs
 # Scaled like vx so a moderate command produces meaningful motion in MuJoCo.
 _CMD_VY_MAX   = 1.5   # m/s clip before obs (effective lateral speed ~0.25-0.4 m/s)
 _VY_OBS_SCALE = 2.5   # mirror _VX_OBS_SCALE so vy has comparable authority
+# TODO: vy 0.6 and 0.9 come out identical?? pretty sure it's the +-5 sigma clip
 
 
 def _quat_to_rotmat(q: np.ndarray) -> np.ndarray:
@@ -258,6 +259,7 @@ def _quat_to_rotmat(q: np.ndarray) -> np.ndarray:
 
 
 class RLVelocityLowLevel(LowLevelBase):
+    # loads the pretrained PPO policy (model_500.pt). we did NOT train this ourselves, see the report
     """
     RSL-RL trained velocity-command policy for Unitree Go2.
 
@@ -307,6 +309,7 @@ class RLVelocityLowLevel(LowLevelBase):
             import torch.nn as nn
 
             ckpt = torch.load(str(_POLICY_PATH), map_location="cpu", weights_only=False)
+            # TODO: try mps/gpu sometime, cpu is fine for this tiny MLP though
             sd = ckpt["model_state_dict"]
 
             # Reconstruct actor MLP: 45 → 512 → 256 → 128 → 12  with ELU

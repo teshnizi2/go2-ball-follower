@@ -37,6 +37,7 @@
   </asset>
 
   <worldbody>
+  <!-- TODO: scene has 200 mocap obstacle slots but we only ever use ~100, trim later -->
     <!-- Lighting -->
     <light name="sun" pos="0 0 4" dir="0 0 -1" directional="true"
       diffuse="0.7 0.7 0.7" specular="0.1 0.1 0.1"/>

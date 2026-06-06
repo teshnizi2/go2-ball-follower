@@ -38,6 +38,7 @@ CONFIG_FILE  = SCRIPT_DIR / "best_config.json"
 
 # ── search space bounds ───────────────────────────────────────────────────────
 PARAM_BOUNDS = {
+# TODO: hill-climbing is slow, try CMA-ES if we have time (we won't lol)
     "ACTION_SCALE_MULT":  (1.0, 2.5),
     "ROBOT_SAFETY":       (0.15, 0.80),
     "DETOUR_MARGIN":      (0.10, 0.60),
