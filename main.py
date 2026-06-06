@@ -352,54 +352,17 @@ class DemoTargetMover:
         import random as _random
         self._param_t += dt
 
-        clearance = self._ball_radius + self._avoid_margin
-
-        # Thread the ball through the GAPS BETWEEN obstacles — not parked in a
-        # safe open lane.  Build the free y-gaps among the obstacles just ahead
-        # and aim at a gap centre: usually the nearest one (a smooth snake
-        # between obstacles), but on a dwell tick JUMP to a far gap so the ball
-        # crosses the corridor and the robot is forced into a hard traverse /
-        # detour after it.  Because the ball is a point with a small clearance,
-        # it threads gaps too narrow for the wide robot, so the robot must do
-        # its own avoidance to follow.
-        look = self._lookahead
-        blocked = []
-        for entry in self._obstacles:
-            ox, oy = entry[0], entry[1]
-            oy_half = entry[2] if len(entry) > 2 else 0.30
-            if 0.0 < (ox - self._x) < look:
-                blocked.append((oy - oy_half - clearance, oy + oy_half + clearance))
-        WALL = 2.4
-        blocked.sort()
-        gaps = []
-        prev = -WALL
-        for lo, hi in blocked:
-            if lo > prev:
-                gaps.append((prev, lo))
-            prev = max(prev, hi)
-        if WALL > prev:
-            gaps.append((prev, WALL))
-        gaps = [g for g in gaps if (g[1] - g[0]) > 0.30]   # threadable by a point
-
-        def _gc(g):
-            return 0.5 * (g[0] + g[1])
-        def _dist_to_gap(g):
-            return 0.0 if g[0] <= self._y <= g[1] else min(abs(g[0] - self._y),
-                                                           abs(g[1] - self._y))
-
-        self._lane_dwell_t += dt
-        if gaps:
-            target_gap = min(gaps, key=_dist_to_gap)         # nearest gap (snake)
-            if self._lane_dwell_t >= self._lane_dwell_s and len(gaps) > 1:
-                self._lane_dwell_t = 0.0
-                # Cross the corridor: pick the gap whose centre is FARTHEST from
-                # the ball — drags the robot through a hard lateral traverse.
-                target_gap = max(gaps, key=lambda g: abs(_gc(g) - self._y))
-            target_y = max(target_gap[0] + 0.05, min(target_gap[1] - 0.05, _gc(target_gap)))
-        else:
-            target_y = self._y
+        # The ball goes STRAIGHT THROUGH the obstacle field on its OWN weave —
+        # it does NOT avoid obstacles (that's the ROBOT's job).  Its lateral
+        # path is an independent sine, deliberately out of phase with the
+        # obstacle serpentine, so the ball is frequently sitting ON / behind an
+        # obstacle and the robot must detour AROUND that obstacle to keep
+        # chasing it.  The robot tracks the ball by ground-truth bearing, so it
+        # keeps chasing even while the ball is briefly occluded inside an object.
+        _amp = float(os.environ.get("BALL_WEAVE_AMP", "1.5"))
+        _frq = float(os.environ.get("BALL_WEAVE_FREQ", "0.085"))
+        target_y = _amp * math.sin(_frq * self._x + 0.7)
         self._corridor_y_target = target_y
-        # Approximate lane label for the HUD from the chosen gap centre.
         self._current_lane_idx = 0 if target_y < -0.6 else (2 if target_y > 0.6 else 1)
 
         # ── Leash logic ──────────────────────────────────────────────────
@@ -494,12 +457,12 @@ class DemoTargetMover:
             n_rows_passed = max(0, int((self._robot_x - ROW_START_X) / ROW_GAP))
             # Stage advances every STAGE_SECONDS of sim time (default 20 s).
             # Falls back to row-based advancement if sim_time isn't available.
-            _STAGE_SECONDS = float(os.environ.get("STAGE_SECONDS", "20.0"))
-            _sim_t = getattr(self, "_sim_time", None)
-            if _sim_t is not None:
-                stage = 1 + int(_sim_t / _STAGE_SECONDS)
-            else:
-                stage = 1 + n_rows_passed // 3
+            # Stage from DISTANCE travelled — monotonic, so a fall (which zeroes
+            # sim_time) can no longer reset it from 16 back to 1.  Climbs to 17
+            # and then HOLDS there forever as the robot keeps going.
+            _STAGE_DIST = float(os.environ.get("STAGE_DISTANCE", "16.0"))
+            stage = 1 + min(16, int(max(0.0, self._robot_x - ROW_START_X)
+                                    / max(_STAGE_DIST, 0.1)))
             t = self._param_t
             # Stage 2+: lateral sine sway
             if stage >= 2:
