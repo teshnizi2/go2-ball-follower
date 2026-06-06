@@ -1930,6 +1930,22 @@ def main() -> None:
                   f"({disp_w}x{disp_h}) for {record_duration} s wall.", flush=True)
             record_start_wall = time.perf_counter()
 
+    # Headless chase RECORDER: render a chase view (robot in frame + obstacles
+    # ahead) each render-step and write a video — a reliable, fast way to make a
+    # demo without a display.  Set RECORD_CHASE=/path.mp4 with GO2_HEADLESS=1.
+    chase_vw = None
+    chase_path = os.environ.get("RECORD_CHASE", "")
+    if chase_path and HEADLESS:
+        chase_vw = cv2.VideoWriter(chase_path, cv2.VideoWriter_fourcc(*"mp4v"),
+                                   float(os.environ.get("RECORD_FPS", "30.0")),
+                                   (CAM_W, CAM_H))
+        if chase_vw.isOpened():
+            print(f"[REC] headless chase recorder → {chase_path} "
+                  f"({CAM_W}x{CAM_H})", flush=True)
+        else:
+            print(f"[REC] FAILED to open chase recorder {chase_path}", flush=True)
+            chase_vw = None
+
     if not HEADLESS:
         cv2.namedWindow("Go2 Object Tracking", cv2.WINDOW_NORMAL)
         cv2.resizeWindow("Go2 Object Tracking", disp_w, disp_h)
@@ -2246,7 +2262,18 @@ def main() -> None:
                         _oxs = [p[0] for p in obstacle_world_positions]
                         print(f"[RECYCLE] t={float(data.time):.1f} rx={rx:.1f} "
                               f"row→x={_new_x:.1f}  obstacle_x_range=[{min(_oxs):.1f},{max(_oxs):.1f}] "
-                              f"n_ahead={sum(1 for x in _oxs if x > rx)}", flush=True)
+                              f"n_ahead={sum(1 for x in _oxs if x > rx)} "
+                              f"nearest_ahead={min((x-rx for x in _oxs if x > rx), default=-1):.1f}", flush=True)
+
+            # Headless chase recorder: render a chase view (robot in frame +
+            # obstacles ahead) every render-step and write it to the video.
+            if HEADLESS and chase_vw is not None and (
+                    step_num == 1 or step_num % RENDER_SKIP == 0):
+                _sc = mujoco.MjvCamera(); _sc.type = mujoco.mjtCamera.mjCAMERA_FREE
+                _sc.lookat[:] = (rx + 1.5, ry, 0.32); _sc.azimuth = 0.0
+                _sc.elevation = -14.0; _sc.distance = 4.2
+                renderer.update_scene(data, camera=_sc)
+                chase_vw.write(cv2.cvtColor(renderer.render(), cv2.COLOR_RGB2BGR))
 
             # ── move target ──────────────────────────────────────────────
             # Target path follows the configured mode; on sustained loss it waits
@@ -3548,6 +3575,9 @@ def main() -> None:
     if video_writer is not None:
         video_writer.release()
         print(f"[REC] Video saved: {record_path}", flush=True)
+    if locals().get("chase_vw") is not None:
+        chase_vw.release()
+        print(f"[REC] Chase video saved: {chase_path}", flush=True)
     if not HEADLESS:
         cv2.destroyAllWindows()
     logger.close()

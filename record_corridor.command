@@ -38,11 +38,18 @@ MIN_PASSAGE=1.45 \
 echo "===> Sim stopped. Re-encoding..."
 RAW_DUR=$(ffprobe -v error -show_entries format=duration \
     -of default=noprint_wrappers=1:nokey=1 "$OUT_RAW" 2>/dev/null)
-SIM_SPEED_VIDEO=$(awk "BEGIN { printf \"%.1f\", 33 * 30 / 50 }")
-echo "===> raw_dur=${RAW_DUR}s  effective sim speed=~${SIM_SPEED_VIDEO}×"
-ffmpeg -y -loglevel error -i "$OUT_RAW" \
-    -c:v libx264 -crf 18 -preset fast "$OUT_FINAL"
-
-echo "===> Saved: $OUT_FINAL"
+echo "===> raw_dur=${RAW_DUR}s"
+# Robust save: re-encode to H.264 for compatibility; if that fails for ANY
+# reason, fall back to copying the raw clip so a video is ALWAYS produced
+# (the old script printed "Saved" even when ffmpeg silently failed).
+if ffmpeg -y -loglevel error -i "$OUT_RAW" \
+        -c:v libx264 -crf 20 -preset veryfast -pix_fmt yuv420p "$OUT_FINAL" \
+        && [ -s "$OUT_FINAL" ]; then
+    echo "===> Saved (H.264): $OUT_FINAL"
+else
+    echo "===> Re-encode failed — saving the raw clip instead."
+    cp -f "$OUT_RAW" "$OUT_FINAL"
+    echo "===> Saved (raw mp4v): $OUT_FINAL"
+fi
 echo "===> Opening..."
-open "$OUT_FINAL"
+open "$OUT_FINAL" 2>/dev/null || true
