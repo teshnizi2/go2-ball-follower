@@ -359,8 +359,8 @@ class DemoTargetMover:
         # obstacle and the robot must detour AROUND that obstacle to keep
         # chasing it.  The robot tracks the ball by ground-truth bearing, so it
         # keeps chasing even while the ball is briefly occluded inside an object.
-        _amp = float(os.environ.get("BALL_WEAVE_AMP", "1.5"))
-        _frq = float(os.environ.get("BALL_WEAVE_FREQ", "0.085"))
+        _amp = float(os.environ.get("BALL_WEAVE_AMP", "0.75"))
+        _frq = float(os.environ.get("BALL_WEAVE_FREQ", "0.055"))
         target_y = _amp * math.sin(_frq * self._x + 0.7)
         self._corridor_y_target = target_y
         self._current_lane_idx = 0 if target_y < -0.6 else (2 if target_y > 0.6 else 1)
