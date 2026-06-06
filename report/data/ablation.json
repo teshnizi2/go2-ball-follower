@@ -1,0 +1,74 @@
+[
+  {
+    "config": "full",
+    "seed": 42,
+    "collided": false,
+    "first_t": null,
+    "first_x": null,
+    "final_x": 58.4942
+  },
+  {
+    "config": "full",
+    "seed": 7,
+    "collided": false,
+    "first_t": null,
+    "first_x": null,
+    "final_x": 110.3506
+  },
+  {
+    "config": "full",
+    "seed": 123,
+    "collided": false,
+    "first_t": null,
+    "first_x": null,
+    "final_x": 110.5245
+  },
+  {
+    "config": "no_lateral",
+    "seed": 42,
+    "collided": false,
+    "first_t": null,
+    "first_x": null,
+    "final_x": 129.421
+  },
+  {
+    "config": "no_lateral",
+    "seed": 7,
+    "collided": false,
+    "first_t": null,
+    "first_x": null,
+    "final_x": 129.4549
+  },
+  {
+    "config": "no_lateral",
+    "seed": 123,
+    "collided": false,
+    "first_t": null,
+    "first_x": null,
+    "final_x": 129.9651
+  },
+  {
+    "config": "no_avoid",
+    "seed": 42,
+    "collided": false,
+    "first_t": null,
+    "first_x": null,
+    "final_x": 86.2664
+  },
+  {
+    "config": "no_avoid",
+    "seed": 7,
+    "collided": false,
+    "first_t": null,
+    "first_x": null,
+    "final_x": 97.757
+  },
+  {
+    "config": "no_avoid",
+    "seed": 123,
+    "collided": false,
+    "first_t": null,
+    "first_x": null,
+    "final_x": 103.4113
+  }
+]

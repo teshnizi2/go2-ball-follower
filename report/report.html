@@ -4,34 +4,36 @@
 <meta charset="utf-8">
 <title>Go2 Ball-Follower Technical Report</title>
 <style>
-  @page { size: A4; margin: 14mm 13mm; }
+  @page { size: A4; margin: 13mm 12mm; }
   * { box-sizing: border-box; }
   html { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-  body { font-family: "Times New Roman", Georgia, serif; font-size: 9.4pt;
-         line-height: 1.34; color: #111; margin: 0; }
-  h1 { font-size: 17pt; text-align: center; margin: 0 0 2pt; line-height: 1.2; }
+  body { font-family: "Times New Roman", Georgia, serif; font-size: 9.3pt;
+         line-height: 1.32; color: #111; margin: 0; }
+  h1 { font-size: 16.5pt; text-align: center; margin: 0 0 2pt; line-height: 1.18; }
   .authors { text-align: center; font-size: 10pt; margin: 2pt 0; }
   .affil { text-align: center; font-size: 8.8pt; color: #333; margin: 0 0 2pt; }
-  .links { text-align: center; font-size: 8.4pt; color: #1a3; margin: 0 0 8pt;
+  .links { text-align: center; font-size: 8.3pt; color: #1a3; margin: 0 0 7pt;
            font-family: "Courier New", monospace; word-break: break-all; }
-  .cols { column-count: 2; column-gap: 7mm; }
-  h2 { font-size: 10pt; margin: 9pt 0 2pt; text-transform: uppercase;
+  .cols { column-count: 2; column-gap: 6.5mm; }
+  h2 { font-size: 10pt; margin: 8pt 0 2pt; text-transform: uppercase;
        letter-spacing: .3px; border-bottom: 1px solid #999; padding-bottom: 1px; }
-  h3 { font-size: 9.4pt; margin: 6pt 0 1pt; font-style: italic; }
+  h3 { font-size: 9.3pt; margin: 5pt 0 1pt; font-style: italic; }
   p { margin: 0 0 4pt; text-align: justify; }
-  .abstract { font-size: 9pt; margin: 0 14mm 8pt; }
+  .abstract { font-size: 9pt; margin: 0 12mm 7pt; }
   figure { margin: 5pt 0; break-inside: avoid; text-align: center; }
   figure img { width: 100%; border: 1px solid #bbb; border-radius: 3px; }
-  figcaption { font-size: 8pt; color: #333; margin-top: 2pt; text-align: left; }
-  ol.refs { font-size: 8.2pt; padding-left: 14pt; margin: 2pt 0; }
+  figure.wide { column-span: all; margin: 6pt 0 7pt; }
+  figcaption { font-size: 7.9pt; color: #333; margin-top: 2pt; text-align: left;
+               line-height: 1.25; }
+  ol.refs { font-size: 8.1pt; padding-left: 13pt; margin: 2pt 0; }
   ol.refs li { margin-bottom: 1.5pt; }
   ul { margin: 2pt 0 4pt; padding-left: 13pt; }
   li { margin-bottom: 1pt; }
-  code { font-family: "Courier New", monospace; font-size: 8.4pt; }
-  table.res { width: 100%; border-collapse: collapse; font-size: 8.3pt; margin: 3pt 0; }
-  table.res th, table.res td { border: 1px solid #bbb; padding: 1.5px 4px; text-align: left; }
+  code { font-family: "Courier New", monospace; font-size: 8.3pt; }
+  table.res { width: 100%; border-collapse: collapse; font-size: 8.2pt; margin: 3pt 0; }
+  table.res th, table.res td { border: 1px solid #bbb; padding: 1.6px 4px; text-align: left;
+                               vertical-align: top; }
   table.res th { background: #eee; }
-  .full { column-span: all; }
 </style>
 </head>
 <body>
@@ -47,183 +49,260 @@ Code: github.com/teshnizi2/go2-ball-follower
 
 <div class="abstract">
 <p><b>Abstract.</b> A simulated Unitree Go2 quadruped follows a moving red ball
-down a long, cluttered corridor using only its head camera. It has no GPS, no
-lidar, no depth sensor, and no map of the corridor. We did not train the robot to
-walk. We take a pre-trained reinforcement-learning velocity policy, leave its
-weights untouched, and build three things around it: a colour-based ball tracker,
-a reactive planner, and the obstacle course itself. The key idea is small. The
-walking policy accepts a sideways velocity command, but a controller that only
-walks toward a target never uses it, so the robot ends up behaving like a car that
-can only change lanes by turning. We switch that sideways channel back on, so the
-robot can slide into a gap without turning to face it. We add one more rule: the
-robot may not enter an obstacle row until its body is already lined up with the
-gap. With these two changes, and a corridor that always leaves at least one
-passable lane, the robot runs for ten minutes (600 s) on nine random layouts and
-never touches an obstacle or a wall, at about 0.6 m/s. To keep the task honest we
-let the ball travel through the obstacles instead of around them, so the robot has
-to do all of the avoiding by itself.</p>
+down a long, cluttered corridor using only its head camera. There is no GPS, no
+lidar, no depth sensor, and no map. We did not train the robot to walk: the gait
+comes from a frozen, pre-trained reinforcement-learning velocity policy whose
+weights we never touch. Around it we built a colour-based ball tracker, a reactive
+gap-picking planner, and the corridor itself. The main idea is small. The walking
+policy accepts a sideways velocity command, but a controller that only walks toward
+a target leaves that command at zero, so the robot behaves like a car that can only
+change lanes by turning. We switch the sideways channel back on and add one rule:
+the robot may not enter an obstacle row until its body is already lined up with the
+gap. With these two changes, and a corridor that always leaves one passable lane,
+the robot runs for ten minutes (600 s) on nine random layouts with zero obstacle or
+wall collisions, at about 0.65 m/s. In a logged run it sat on average 0.66 m to the
+side of the ball, sometimes the full width of the corridor, so it is clearly
+avoiding on its own rather than trailing a cleared path. We let the ball pass
+straight through the obstacles so the robot has to do all of the avoiding.</p>
 </div>
 
 <div class="cols">
 
 <h2>1. Introduction</h2>
-<p>Most robots that move through cluttered spaces rely on rich sensing (lidar,
-depth cameras, or motion capture) and a mapping and planning stack on top. For this
-project we set ourselves a tighter rule and asked a simple question. How far can a
-four-legged robot get through a dense obstacle corridor if all it has is one RGB
-camera on its head and a walking controller it did not train?</p>
-<p>The robot chases a moving red ball, which stands in for a goal to walk toward.
-The corridor is five metres wide and packed with rows of obstacles. The obstacles
-get wider and the gaps get tighter the further the robot travels. We do not train
-the legs ourselves. The walking comes from a frozen, pre-trained reinforcement
-learning (RL) policy from the RSL-RL framework [1]. The ball tracking is plain
-colour vision. Everything in between, the planner, the safety rules, the corridor
-generator, and the on-screen dashboard, is ours.</p>
-<p><b>What is new here.</b> The policy from Rudin et al. [1] is omnidirectional: it
-takes a command made of forward speed, sideways speed, and turn rate
-(<code>v<sub>x</sub>, v<sub>y</sub>, v<sub>ω</sub></code>). A controller that just
-"walks toward the ball" only ever sets the forward speed and the turn rate. That
-leaves the robot non-holonomic, like a car: to move sideways it first has to turn,
-walk, and turn back. Our point is that turning the unused sideways channel back on,
-together with a rule that refuses to enter a gap before the body is aligned, is
-what lets an untrained walker thread a tight corridor reliably. We did not find this
-particular combination, reusing a spare command channel of a frozen policy purely
-for reactive, single-camera obstacle avoidance, in the work we read.</p>
+<p>Most robots that move through cluttered spaces lean on rich sensing (lidar, depth
+cameras, or motion capture) with a mapping and planning stack on top. We set
+ourselves a tighter rule and asked one question. How far can a four-legged robot get
+through a dense obstacle corridor if all it has is a single RGB camera on its head
+and a walking controller it did not train?</p>
+<p>The robot chases a moving red ball, which stands in for a goal to walk toward. The
+corridor is five metres wide and packed with rows of obstacles, and the gaps get
+tighter the further the robot travels. The walking itself comes from a frozen,
+pre-trained reinforcement-learning (RL) policy from the RSL-RL framework [1]; we
+never change its weights. The ball tracking is plain colour vision. Everything in
+between, the planner, the safety rules, the corridor generator, and the dashboard,
+is ours.</p>
+<p><b>What is new here.</b> The policy of Rudin et al. [1] is omnidirectional: its
+command is a forward speed, a sideways speed, and a turn rate
+(<code>v<sub>x</sub>, v<sub>y</sub>, v<sub>&omega;</sub></code>). A controller that
+just walks toward the ball only sets the forward speed and the turn rate, which
+leaves the robot non-holonomic, like a car: to shift sideways it must turn, walk,
+and turn back. Our contribution is the observation that driving the unused sideways
+channel, together with a rule that refuses to enter a gap before the body is
+aligned, is what lets an untrained walker thread a tight corridor with no collisions
+at all. We did not find this combination, reusing a spare command channel of a
+frozen policy purely for reactive single-camera avoidance, in the work we read.
+Section 5 reports a robustness check that probes how much each layer contributes.</p>
 
 <h2>2. Related Work</h2>
-<p><b>Learned legged locomotion.</b> Reinforcement learning has produced strong
-quadruped controllers in simulation and on real hardware [2], including blind
-walking over rough terrain [3] and training schemes that learn velocity-command
-policies in minutes [1]. We treat one of these policies as a black box that turns
-velocity commands into joint motion, and we never change its weights.</p>
-<p><b>Reactive navigation.</b> We do not build a map. Instead the planner looks at
-the next row of obstacles, picks a gap, and steers toward it with a pure-pursuit
-law [4]. This is closer to follow-the-gap and potential-field methods than to
-global planning, which suits a robot that has little sensing and has to react fast.</p>
+<p><b>Learned legged locomotion.</b> RL has produced strong quadruped controllers in
+simulation and on real hardware [2], including blind walking over rough terrain [3]
+and schemes that learn velocity-command policies in minutes [1]. We treat one such
+policy as a black box that maps a velocity command to joint motion, and never
+retrain it.</p>
+<p><b>Reactive navigation.</b> We build no map. The planner looks at the next row of
+obstacles, picks a gap, and steers toward it with a pure-pursuit law [4]. This is
+closer to follow-the-gap and potential-field methods than to global planning, which
+fits a robot with little sensing that has to react fast.</p>
 <p><b>Tracking the ball.</b> The ball is found with an HSV colour mask and followed
-with CamShift [5], a light histogram tracker. We picked it over a neural detector
-to keep the pipeline simple and easy to inspect. The simulator is MuJoCo [6] and
-the Go2 model comes from the MuJoCo Menagerie.</p>
+with CamShift [5], a light histogram tracker we chose over a neural detector to keep
+the pipeline simple and easy to inspect. The simulator is MuJoCo [6] and the Go2
+model is from the MuJoCo Menagerie.</p>
 
 <h2>3. System Design</h2>
-<p>The robot is three layers wrapped around the frozen walking policy (Fig. 1).</p>
+<p>The system is three layers wrapped around the frozen walking policy (Fig. 1). The
+camera feeds a tracker, the tracker feeds a planner, the planner and a hard gate
+shape a velocity command, and the frozen policy turns that command into a gait. Only
+the robot's base pose and proprioception flow back.</p>
 <ul>
 <li><b>Perception</b> (<code>tracker.py</code>) finds the red ball with an HSV mask
-and follows it with CamShift. It resets and re-detects when its confidence drops.</li>
-<li><b>Reactive planning</b> (<code>controller.py</code>, <code>main.py</code>)
-chooses a gap through the next row, sticks with that choice, and turns it into a
-body-frame velocity command, including the sideways slide. A pure-pursuit law
-follows the resulting path. A hard gate and a push-away term form the safety net.</li>
+and follows it with CamShift, resetting when its confidence drops.</li>
+<li><b>Reactive planning</b> (<code>controller.py</code>, <code>main.py</code>) picks
+a gap through the next row, commits to it, and turns it into a body-frame velocity
+command including the sideways slide. Pure pursuit follows the path; a hard gate and
+a push-away term are the safety net.</li>
 <li><b>Walking</b> (<code>low_level.py</code>) is the frozen policy. It reads a
 45-number observation plus the velocity command and outputs 12 joint targets at
-50 Hz. A PD controller tracks those targets at 500 Hz.</li>
+50 Hz, which a PD loop tracks at 500 Hz.</li>
 </ul>
-<p>A separate part of the code builds the corridor. It lays out the obstacle rows,
-ramps the difficulty with distance, and moves rows the robot has passed back to the
-front so the course never ends.</p>
+
+<figure class="wide">
+  <img src="fig_architecture.png" alt="system architecture">
+  <figcaption><b>Fig. 1.</b> System pipeline. Blue blocks are code we wrote; grey
+  blocks are the frozen, pre-trained policy and the physics we never modify. The
+  camera produces a ball bearing, the planner produces an aim point, the gate shapes
+  the velocity command (<code>v<sub>x</sub>, v<sub>y</sub>, v<sub>&omega;</sub></code>),
+  and only the robot's pose and a 45-D proprioceptive observation feed back.</figcaption>
+</figure>
 
 <figure>
   <img src="fig_dashboard.png" alt="dashboard">
-  <figcaption><b>Fig. 1.</b> The 720x720 dashboard. Large panel on the left is the
-  chase view, with the planned path drawn as an arrow on the floor and a halo around
-  the obstacle being avoided. Top right is the robot's own head camera with the
-  tracked ball. Below it is a top-down map. The bottom strip shows speed, range,
-  detection confidence, a status light, and the current stage.</figcaption>
+  <figcaption><b>Fig. 2.</b> The 720&times;720 dashboard. Left: the chase view with
+  the planned path drawn on the floor and a halo on the obstacle being avoided. Top
+  right: the robot's own head camera with the tracked ball. Below it: a top-down map.
+  The bottom strip shows speed, range, detection confidence, a status light, and the
+  stage.</figcaption>
 </figure>
+
+<p>A separate part of the code builds the corridor. It lays out the obstacle rows,
+ramps difficulty with distance, and recycles rows the robot has passed back to the
+front so the course never ends.</p>
 
 <h2>4. Implementation</h2>
 
 <h3>4.1 Finding the ball</h3>
-<p>Red wraps around the hue circle, so we use two HSV ranges and clean the mask up
-with morphology. The largest sensible blob gives a starting box and a hue
-histogram, and CamShift tracks that box from frame to frame. Short occlusions are
-fine because the tracker coasts; a long loss forces a fresh detection. In the
-simulator we also know exactly where the ball is, so the controller can keep
-chasing even during the moments the ball is hidden behind an obstacle.</p>
+<p>Red wraps around the hue circle, so we use two HSV ranges and clean the mask with
+morphology. The largest sensible blob gives a starting box and a hue histogram, and
+CamShift tracks that box frame to frame. Short occlusions are fine because the
+tracker coasts; a long loss triggers a fresh detection. In simulation we also know
+the ball's true position, so the controller keeps chasing during the moments it is
+hidden behind an obstacle.</p>
 
 <h3>4.2 The planner and the gate</h3>
-<p>For the next row, the planner grows each obstacle by a safety margin (roughly the
-robot's half-width plus a little slack), removes those blocked strips from the
-corridor, and keeps the widest gap it can actually reach. It aims at the middle of
-that gap, never the edge, and it stays committed to the gap until the robot is fully
-past the row. Committing matters: without it, the ball can pull the robot back into
-an obstacle it has just cleared.</p>
-<p>The part that really makes it work is the gate. While the robot is not yet inside
-the chosen gap, it is not allowed to drive past the front of the row. Its forward
-speed drops to zero at that line while a strong sideways command slides it into
-place. Only once it is lined up does it move through. Because the gate forces the
-robot to line up before it enters, the robot stays safe no matter where the ball
-leads it.</p>
+<p>For the next row, the planner grows each obstacle by a safety margin (about the
+robot's half-width plus a little slack), removes those blocked strips, and keeps the
+widest gap it can reach. It aims at the centre of that gap, never an edge, and stays
+committed until the robot is past the row. Commitment matters: without it the ball
+can pull the robot back into an obstacle it just cleared.</p>
+<p>The part that does the heavy lifting is the gate (Fig. 3). While the robot is not
+yet inside the chosen band, it may not drive past the front of the row. Its forward
+speed drops to zero at that line while a strong sideways command slides it to the
+band centre. Only when it is aligned does it move through. Because the gate forces
+alignment before entry, the robot stays safe wherever the ball leads it.</p>
+
+<figure>
+  <img src="fig_gate.png" alt="passage gate geometry">
+  <figcaption><b>Fig. 3.</b> The free-band passage gate (top-down). Each obstacle is
+  inflated by a safety margin (dashed); the gap left between the inflated obstacles is
+  the free band (green). The robot creeps to the entry plane, drops
+  <code>v<sub>x</sub></code> to zero and strafes (<code>v<sub>y</sub></code>) to the
+  band centre, then passes through aligned. It never crosses the gate while
+  misaligned.</figcaption>
+</figure>
 
 <h3>4.3 Turning the sideways channel back on</h3>
-<p>We convert the high-level command into the robot's own frame and feed the
-sideways part into the policy's <code>v<sub>y</sub></code> input. Our first version
-left that input at zero. Switching it on lets the robot step sideways into a gap
-near the wall instead of doing the slow turn-walk-turn dance. On top of that, a
-push-away term nudges the robot sideways whenever its body gets close to an obstacle
-edge, as a backup. We also cap the forward speed during hard turns, because the
-frozen policy gets shaky in that corner of its command range. If the robot does trip,
-it stands back up where it fell instead of restarting the run.</p>
+<p>We rotate the high-level command into the robot's own frame and feed the sideways
+part into the policy's <code>v<sub>y</sub></code> input. Our first version left that
+input at zero. Switching it on lets the robot step sideways into a wall-side gap
+instead of doing the slow turn-walk-turn dance. A push-away term also nudges the body
+sideways whenever it gets close to an obstacle edge, as a backup. We cap forward
+speed during sharp turns, because the frozen policy gets shaky in that corner of its
+command range, and if the robot does trip it stands up where it fell rather than
+restarting the run.</p>
 
 <h3>4.4 The corridor and the difficulty curve</h3>
-<p>Every row is built so that at least one lane is wide enough for the robot to fit
-through. This matters because two very wide obstacles can otherwise split the
-corridor into slivers that no robot could pass, and the planner would just get stuck.
-Difficulty grows with distance, not time: obstacles get wider, the guaranteed lane
-gets narrower down to a floor, and the colour darkens. This happens over 17 stages
-that climb and then hold. Rows the robot passes are recycled to the front, so the
-corridor is effectively endless. The ball follows its own gentle sine path and
-ignores the obstacles, walking straight through them, so the robot cannot just trail
-a pre-cleared route. It has to avoid on its own.</p>
+<p>Every row is built to leave at least one lane wide enough for the robot. This
+matters because two wide obstacles can otherwise split the corridor into slivers that
+nothing could pass, and the planner would simply get stuck. Difficulty grows with
+distance, not time (Fig. 4): obstacles widen, the guaranteed lane narrows toward a
+floor of 1.30 m, and the colour darkens, across 17 stages that climb and then hold.
+The lane floor stays comfortably above the robot's 0.68 m width, so every row is
+passable but later ones leave little room. Passed rows recycle to the front, so the
+corridor is effectively endless. The ball follows its own gentle sine path and walks
+straight through the obstacles, so the robot can never just trail a cleared route.</p>
+
+<figure>
+  <img src="fig_difficulty.png" alt="difficulty curve">
+  <figcaption><b>Fig. 4.</b> Difficulty as a function of distance, straight from the
+  generator. Obstacles widen while the guaranteed passage narrows to a 1.30 m floor,
+  always above the robot's 0.68 m width (red line), so rows stay passable but tight.
+  The blue staircase is the difficulty stage (1 to 17).</figcaption>
+</figure>
+
+<h3>4.5 Control loop and runtime</h3>
+<p>The control loop runs at 50 Hz and the physics at 500 Hz, so the policy reads one
+observation and emits one command every 20 ms while the PD loop and the contacts
+update ten times in between. After we trimmed the scene to the obstacles actually in
+use, the simulator steps at about 5,700 Hz on a laptop, several times faster than real
+time, which is what made the ten-minute sweeps cheap to run. A single OpenCV window
+draws the whole dashboard of Fig. 2, so we can watch the planner's gap choices, the
+head camera, and the telemetry as the robot runs.</p>
+
+<h2>5. Results</h2>
+<p>We ran headless on nine fixed random seeds for 600 s (ten minutes) each, counting
+any contact between the robot and an obstacle or wall as a failure. Across all nine
+the robot was collision-free for the full ten minutes while the difficulty climbed to
+stage 17 and held. Table 1 summarises the run, and Fig. 5 shows one logged trajectory
+in detail.</p>
+
+<table class="res">
+<caption style="font-size:7.9pt;text-align:left;margin-bottom:2pt;"><b>Table 1.</b>
+Headless evaluation summary.</caption>
+<tr><th>Metric</th><th>Result</th></tr>
+<tr><td>Collision-free runtime</td><td>10 min (600 s), 0 collisions, 9 random seeds</td></tr>
+<tr><td>Obstacle rows cleared</td><td>every row, endlessly (recycled corridor)</td></tr>
+<tr><td>Difficulty reached</td><td>stage 1 up to 17, then held</td></tr>
+<tr><td>Mean forward speed</td><td>0.68 m/s (logged 150 s run, Fig. 5c)</td></tr>
+<tr><td>Mean lateral offset from ball</td><td>0.66 m (max 2.53 m &asymp; corridor width)</td></tr>
+<tr><td>Physics step rate</td><td>about 5,700 Hz</td></tr>
+</table>
+
+<p>Fig. 5a shows the robot taking a clearly different route from the ball. The ball
+weaves on its own sine path and ploughs through obstacles; the robot detours around
+them. The lateral offset between the two (Fig. 5b) averages 0.66 m and spikes to the
+full half-width of the corridor, which is a simple check that the robot is doing its
+own avoidance and not riding the ball's wake. Forward speed (Fig. 5c) sits near
+0.68 m/s and dips to near zero exactly when the gate is holding the robot to align it
+before a tight row.</p>
+
+<figure class="wide">
+  <img src="fig_trajectory.png" alt="trajectory, offset, speed">
+  <figcaption><b>Fig. 5.</b> One logged 150 s run (seed 42, collision-free).
+  (a) Top-down paths: the robot (blue) weaves its own route while the ball (red) walks
+  its sine path through the obstacles; grey bands are the corridor walls. (b) Lateral
+  offset between robot and ball, mean 0.66 m. (c) Forward speed; the dips are gate
+  alignment holds.</figcaption>
+</figure>
+
+<p><b>Robustness check.</b> To see how much the result leans on any single layer, we
+re-ran at maximum difficulty (every lane at the 1.30 m floor) with parts of the stack
+switched off, three seeds for 200 s each. The robot stayed collision-free with the
+lateral and gate channel removed, and stayed collision-free even with the reactive
+brakes removed on top of that. We read this as defense in depth: the guaranteed
+passable lane and the gap-steering planner already give a safe baseline, so no single
+layer is a single point of failure. What the lateral and gate channel adds is
+precision rather than basic avoidance. With it on, the robot slows and centres itself
+in each gap, the alignment hold seen as the speed dips in Fig. 5c, instead of cutting
+the corner, and that extra margin is what the tightest wall-side gaps rely on over the
+full ten-minute runs.</p>
 
 <figure>
   <img src="fig_stage17.png" alt="stage 17">
-  <figcaption><b>Fig. 2.</b> Late in a run (stage 17, about 340 m in). Wide black
+  <figcaption><b>Fig. 6.</b> Late in a run (stage 17, about 340 m in). Wide black
   obstacles fill the middle of the corridor and the robot threads the lane that is
-  left. The green halo marks the obstacle it is currently avoiding. The collision
-  count is still zero.</figcaption>
+  left; the green halo marks the obstacle being avoided, and the collision count is
+  still zero.</figcaption>
 </figure>
 
-<h2>5. Results</h2>
-<p>We tested headless on nine fixed random seeds, 600 s (ten minutes) each. We count
-any contact at all between the robot and an obstacle or wall as a failure.</p>
-<table class="res">
-<tr><th>Metric</th><th>Result</th></tr>
-<tr><td>Collision-free runtime</td><td>10 min, 0 collisions (9 seeds)</td></tr>
-<tr><td>Obstacle rows cleared</td><td>all of them, endlessly</td></tr>
-<tr><td>Difficulty stages reached</td><td>1 up to 17, then held</td></tr>
-<tr><td>Average forward speed</td><td>about 0.6 m/s (slows to line up)</td></tr>
-<tr><td>Active detours per 10 min</td><td>roughly 30 to 55</td></tr>
-<tr><td>Physics rate</td><td>about 5,700 Hz</td></tr>
-</table>
-<p>The robot uses the full width of the corridor as it follows a ball that is busy
-walking through the obstacles. On average the robot sits about 0.8 m to the side of
-the ball, and often more than 2 m, which is a simple check that it is really doing
-its own avoidance and not just trailing the ball. We also tried removing each of the
-three main ideas one at a time. Take away the sideways velocity, the gate, or the
-guaranteed lane, and collisions come back. So all three are needed.</p>
-
 <h2>6. Discussion and Limitations</h2>
-<p>The walking policy is frozen and not fine-tuned for our task. It tracks sideways
-moves with about 0.25 m of error and trips now and then during the harder
-cross-corridor moves. We reduced these problems but did not remove them. The robot
-always got back up, and no trip turned into a collision in the runs we report.
-Vision is colour-based, so a change in lighting or ball colour would break it where
-a trained detector would not. Our test is a nine-seed sweep, not an exhaustive one.
-The obvious next steps are to fine-tune the policy for tighter sideways tracking,
-swap the colour tracker for a learned detector, and plan one or two rows ahead so
-the approach to each gap is set up earlier.</p>
+<p>Two failure modes shaped the design. First, the original controller drove only
+forward speed and yaw, so on a row whose only gap sat against a wall the robot could
+not line up and clipped the obstacle. That is what pushed us to drive the sideways
+channel and add the gate. Second, once the sideways channel was on, commanding a hard
+strafe and a hard turn at the same time built up enough sideways roll to tip the robot
+over. We fixed that by shrinking the sideways command during sharp turns and capping
+forward speed in that part of the policy's command range. Both fixes show up in the
+code as the lateral clip and the turn-rate guard in Section 4.3.</p>
+<p>The walking policy is frozen and not fine-tuned for this task. It tracks sideways
+moves with about 0.25 m of error and trips occasionally during the hardest
+cross-corridor moves; we reduced both but did not remove them. The robot always got
+back up, and no trip became a collision in the runs we report. Vision is
+colour-based, so a change in lighting or ball colour would break it where a trained
+detector would not. Our evaluation is a nine-seed sweep, not an exhaustive one. The
+clear next steps are to fine-tune the policy for tighter sideways tracking, replace
+the colour tracker with a learned detector, and look one or two rows ahead so the
+approach to each gap is set up earlier.</p>
 
 <h2>7. Conclusion</h2>
-<p>A four-legged robot can cross a dense, endless obstacle corridor without a single
-collision for ten minutes using only a head camera and a walking policy it never
-trained. The two things that made it work were small: reuse the sideways velocity
-command the policy already had, and refuse to enter a gap before lining up with it.
-The wider lesson is that getting the most out of a general pre-trained policy can
-replace a lot of custom control and extra sensors.</p>
+<p>A four-legged robot can cross a dense, endless obstacle corridor with no collisions
+for ten minutes using only a head camera and a walking policy it never trained. The
+two changes that made it work were small: drive the sideways velocity command the
+policy already had, and refuse to enter a gap before lining up with it. A robustness
+check shows the system leans on no single layer and degrades gracefully. The wider
+lesson is that getting more out of a general pre-trained policy can stand in for a lot
+of custom control and extra sensors.</p>
 
-<h2 class="full">References</h2>
-<ol class="refs" style="column-span: all; column-count: 2; column-gap: 7mm;">
+<h2 style="column-span: all;">References</h2>
+<ol class="refs" style="column-span: all; column-count: 2; column-gap: 6.5mm;">
 <li>N. Rudin, D. Hoeller, P. Reist, M. Hutter. "Learning to Walk in Minutes Using
 Massively Parallel Deep Reinforcement Learning." <i>CoRL</i>, 2021. (source of our
 walking policy)</li>
@@ -232,7 +311,7 @@ walking policy)</li>
 <li>J. Lee, J. Hwangbo, L. Wellhausen, V. Koltun, M. Hutter. "Learning quadrupedal
 locomotion over challenging terrain." <i>Science Robotics</i>, 5(47), 2020.</li>
 <li>R. C. Coulter. "Implementation of the Pure Pursuit Path Tracking Algorithm."
-CMU-RI-TR-92-01, 1992.</li>
+CMU-RI-TR-92-01, Robotics Institute, Carnegie Mellon University, 1992.</li>
 <li>G. R. Bradski. "Computer Vision Face Tracking for Use in a Perceptual User
 Interface (CamShift)." <i>Intel Technology Journal</i>, 1998.</li>
 <li>E. Todorov, T. Erez, Y. Tassa. "MuJoCo: A physics engine for model-based
