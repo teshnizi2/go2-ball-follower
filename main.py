@@ -1493,19 +1493,17 @@ def _row_difficulty(model, gid_w: int, gid_n: int, x: float):
     h_w = min(0.95, 0.30 + d * 0.50)        # wide obstacle: 0.60 m → ~1.9 m wide
     h_n = min(0.68, 0.22 + d * 0.30)        # narrow obstacle
     passage = max(1.30, 1.90 - d * 0.60)    # robot lane: 1.9 m → 1.30 m floor
-    # Colour ramps from warm orange (easy) → deep blood-red (hard).  We do NOT
-    # go to pure black: near-black obstacles vanish against the dark skybox
-    # ("can't see the objects" deep in the corridor).  Crimson reads as
-    # danger/harder AND stays clearly visible against floor, walls and sky.
-    _easy = (0.95, 0.45, 0.16)
-    _hard = (0.62, 0.05, 0.07)
+    # All obstacles are BLACK.  They stay visible because the scene background
+    # was lightened (skybox + haze + headlight) so a near-black box silhouettes
+    # against the bright floor / lighter sky instead of dissolving into it.
+    _black = (0.05, 0.05, 0.06)
     for gid, h in ((gid_w, h_w), (gid_n, h_n)):
         if gid is None or gid < 0:
             continue
         model.geom_size[gid, 1] = h
         model.geom_matid[gid] = -1
         for j in range(3):
-            model.geom_rgba[gid, j] = _easy[j] * (1.0 - d1) + _hard[j] * d1
+            model.geom_rgba[gid, j] = _black[j]
     return h_w, h_n, passage
 
 
