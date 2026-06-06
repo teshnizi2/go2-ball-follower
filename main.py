@@ -1938,13 +1938,16 @@ def main() -> None:
     if chase_path and HEADLESS:
         chase_vw = cv2.VideoWriter(chase_path, cv2.VideoWriter_fourcc(*"mp4v"),
                                    float(os.environ.get("RECORD_FPS", "30.0")),
-                                   (CAM_W, CAM_H))
+                                   (disp_w, disp_h))
         if chase_vw.isOpened():
-            print(f"[REC] headless chase recorder → {chase_path} "
-                  f"({CAM_W}x{CAM_H})", flush=True)
+            print(f"[REC] headless dashboard recorder → {chase_path} "
+                  f"({disp_w}x{disp_h})", flush=True)
         else:
             print(f"[REC] FAILED to open chase recorder {chase_path}", flush=True)
             chase_vw = None
+    # When set, render the FULL dashboard (chase + path arrow + head-cam +
+    # 2D map + telemetry) headlessly and write it to the recorder.
+    _REC_DASH = (chase_vw is not None) and GUI_CHASE_ONLY
 
     if not HEADLESS:
         cv2.namedWindow("Go2 Object Tracking", cv2.WINDOW_NORMAL)
@@ -2265,16 +2268,6 @@ def main() -> None:
                               f"n_ahead={sum(1 for x in _oxs if x > rx)} "
                               f"nearest_ahead={min((x-rx for x in _oxs if x > rx), default=-1):.1f}", flush=True)
 
-            # Headless chase recorder: render a chase view (robot in frame +
-            # obstacles ahead) every render-step and write it to the video.
-            if HEADLESS and chase_vw is not None and (
-                    step_num == 1 or step_num % RENDER_SKIP == 0):
-                _sc = mujoco.MjvCamera(); _sc.type = mujoco.mjtCamera.mjCAMERA_FREE
-                _sc.lookat[:] = (rx + 1.5, ry, 0.32); _sc.azimuth = 0.0
-                _sc.elevation = -14.0; _sc.distance = 4.2
-                renderer.update_scene(data, camera=_sc)
-                chase_vw.write(cv2.cvtColor(renderer.render(), cv2.COLOR_RGB2BGR))
-
             # ── move target ──────────────────────────────────────────────
             # Target path follows the configured mode; on sustained loss it waits
             # in place until re-acquired (after a short grace period).
@@ -2411,7 +2404,7 @@ def main() -> None:
                     chase_rgb = renderer.render().copy()
                     renderer.update_scene(data, camera=rear_id)
                     rear_rgb = renderer.render().copy()
-                elif not HEADLESS and GUI_CHASE_ONLY:
+                elif (not HEADLESS or _REC_DASH) and GUI_CHASE_ONLY:
                     # Dashboard mode: chase rendered at 480x480 with the
                     # dedicated square renderer; side / front / map views
                     # rendered at 240x240 with the tile renderer.
@@ -3275,7 +3268,7 @@ def main() -> None:
             # render — chase_rgb / head_rgb are stale, the HUD is duplicate
             # work, and the bash post-process retimes the video to wall-clock
             # length so dropped frames don't shorten the output.
-            if not HEADLESS and do_render:
+            if (not HEADLESS or _REC_DASH) and do_render:
                 # ── visualise: top-down ───────────────────────────────────
                 head_bgr = cv2.cvtColor(head_rgb, cv2.COLOR_RGB2BGR)
                 head_bgr = annotate_frame(head_bgr, det)
@@ -3359,9 +3352,12 @@ def main() -> None:
                         info_kwargs=info_kwargs,
                     )
 
-                    cv2.imshow("Go2 Object Tracking", dashboard)
+                    if not HEADLESS:
+                        cv2.imshow("Go2 Object Tracking", dashboard)
                     if "video_writer" in locals() and video_writer is not None:
                         video_writer.write(dashboard)
+                    if chase_vw is not None:          # headless dashboard recorder
+                        chase_vw.write(dashboard)
 
                     # (auto-stop removed — user presses Q to end the recording)
                 elif GUI_HEAD_ONLY:

@@ -1,14 +1,15 @@
 #!/bin/bash
-# Reliable demo generator — renders the chase view headlessly (no window),
-# so it ALWAYS produces a saved video showing the robot navigating the
-# endless, always-visible obstacle corridor.  Edit SECONDS for a longer clip.
+# Reliable demo generator — renders the FULL dashboard (chase view + planned-path
+# arrow + head-cam front vision + 2D map + telemetry) headlessly (no window), so
+# it ALWAYS saves a video of the robot navigating the endless, always-visible
+# obstacle corridor.  Pass sim-seconds as an arg for a longer clip.
 cd "$(dirname "$0")"
 OUT="$HOME/Desktop/go2_demo.mp4"
 RAW="/tmp/go2_demo_chase.mp4"
 SECONDS_SIM="${1:-700}"     # sim seconds (~90 s of video per 700) — pass an arg to change
-echo "===> Rendering ${SECONDS_SIM}s of sim → chase video (headless, fast)..."
+echo "===> Rendering ${SECONDS_SIM}s of sim → full dashboard video (headless, fast)..."
 GO2_HEADLESS=1 RECORD_CHASE="$RAW" RECORD_FPS=30 RENDER_SKIP=13 \
-GO2_HEADLESS_SECONDS="$SECONDS_SIM" GO2_SHADOWS=0 \
+GO2_GUI_VIEW=chase GO2_HEADLESS_SECONDS="$SECONDS_SIM" GO2_SHADOWS=1 \
 BALL_PATH_MODE=corridor COLLISION_STOPS_SIM=0 CORRIDOR_ENDLESS=1 \
 ACTION_SCALE_MULT=2.0 ROBOT_SAFETY=0.50 DETOUR_MARGIN=0.50 OBS_BRAKE_LATERAL=0.85 \
 CORRIDOR_SEED="${CORRIDOR_SEED:-700}" OBS_ROWS=50 OBS_MIN_GAP=5.4 OBS_MIN_X=4.0 OBS_MAX_X=275.0 \
