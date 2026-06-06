@@ -1435,7 +1435,14 @@ def _reset(
     keep_x: float | None = None,
     keep_y: float | None = None,
 ) -> None:
+    # CRITICAL: mj_resetDataKeyframe rewrites data.mocap_pos to the keyframe
+    # defaults, which would WIPE THE ENTIRE (recycled) OBSTACLE FIELD — after a
+    # single fall the corridor would go empty and the robot would run through
+    # nothing ("objects disappear after a while").  Preserve the obstacle mocap
+    # positions across the reset.
+    _saved_mocap = data.mocap_pos.copy()
     mujoco.mj_resetDataKeyframe(model, data, 0)
+    data.mocap_pos[:] = _saved_mocap
     # Recover IN PLACE after a fall: pop upright where the robot fell instead
     # of teleporting back to the corridor start (a single stumble shouldn't
     # cost all forward progress).  The keyframe restores the upright pose and
