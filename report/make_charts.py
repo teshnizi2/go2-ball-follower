@@ -77,7 +77,7 @@ def fig_trajectory(csv_path):
     bx = c["ball_x"]; by = c["ball_y"]
     # forward speed from position deltas
     dt = np.diff(t); dt[dt <= 0] = np.nan
-    spd = np.hypot(np.diff(rx), np.diff(ry)) / dt
+    spd = np.diff(rx) / dt  # forward (down-corridor) speed: x-progress rate, not lateral
     # smooth speed (rolling mean, ~1 s window @50 Hz)
     win = 25
     k = np.ones(win) / win
@@ -117,7 +117,7 @@ def fig_trajectory(csv_path):
     # (c) speed
     ax = axs[2]
     ax.plot(rx[1:], spd_s, color="#1d6b1d", lw=1.0)
-    ms = np.nanmean(spd_s[spd_s > 0.05])
+    ms = float(np.nanmean(spd))  # net forward speed over the whole run (incl. gate holds)
     ax.axhline(ms, color="#333", lw=1.0, ls=(0, (4, 3)), label=f"mean = {ms:.2f} m/s")
     ax.set_ylim(0, max(1.0, np.nanpercentile(spd_s, 99)))
     ax.set_xlabel("down-corridor  x (m)", fontsize=8)
