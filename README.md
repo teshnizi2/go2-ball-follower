@@ -9,9 +9,15 @@
 [![status](https://img.shields.io/badge/status-demo--ready-success)]()
 
 ### Project links (deliverables)
-- **Demo video (60 s):** `demo/go2_submission.mp4` in this repo — or regenerate any time with `./make_demo.command`.
+- **Demo video (60 s):** ▶ [**watch it here**](https://github.com/teshnizi2/go2-ball-follower/blob/main/demo/go2_submission.mp4) (plays in the browser) · [download raw](https://github.com/teshnizi2/go2-ball-follower/raw/main/demo/go2_submission.mp4) · or regenerate with `./make_demo.command`.
 - **Code repository:** <https://github.com/teshnizi2/go2-ball-follower>
-- **Technical report:** `report/go2_technical_report.pdf`
+- **Technical report:** [`report/go2_technical_report.pdf`](report/go2_technical_report.pdf)
+
+### 🎥 60-second demo
+
+[![Watch the 60-second demo](demo/thumb.jpg)](https://github.com/teshnizi2/go2-ball-follower/blob/main/demo/go2_submission.mp4)
+
+▶ **[Click to watch the demo](https://github.com/teshnizi2/go2-ball-follower/blob/main/demo/go2_submission.mp4)** — it plays in the browser (the file is under GitHub's 10&nbsp;MB inline limit). Or **[download the raw `.mp4`](https://github.com/teshnizi2/go2-ball-follower/raw/main/demo/go2_submission.mp4)**.
 
 ---
 
